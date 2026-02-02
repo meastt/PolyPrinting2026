@@ -30,6 +30,9 @@ from collections import deque
 from dataclasses import dataclass
 
 from src.strategies.base_strategy import BaseStrategy, TradingSignal
+from src.analysis.indicators import TechnicalIndicators
+from src.analysis.scoring import DirectionalScorer
+from src.analysis.regime import RegimeDetector, MarketRegime
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -94,15 +97,26 @@ class SpikeReversionStrategy(BaseStrategy):
         # Historical reversion tracking
         self._reversion_history: deque = deque(maxlen=100)  # Track success rate
 
+        # Technical Analysis components (PolymarketBTC15mAssistant inspired)
+        self.ta_indicators = TechnicalIndicators()
+        self.ta_scorer = DirectionalScorer()
+        self.regime_detector = RegimeDetector()
+
+        # TA configuration
+        self.use_ta_confirmation = config.get("use_ta_confirmation", True)
+        self.ta_min_confidence_boost = config.get("ta_confidence_boost", 0.1)
+        self.ta_regime_filter = config.get("regime_filter", True)
+
         # Stats
         self._spikes_detected = 0
         self._signals_triggered = 0
         self._successful_reversions = 0
+        self._ta_rejections = 0  # Spikes rejected by TA confirmation
 
         logger.info(
             f"SpikeReversionStrategy initialized "
             f"(threshold={self.threshold_percent}%, lookback={self.lookback_seconds}s, "
-            f"assets={self.monitored_assets})"
+            f"assets={self.monitored_assets}, ta_confirmation={self.use_ta_confirmation})"
         )
 
     def evaluate(
@@ -262,6 +276,11 @@ class SpikeReversionStrategy(BaseStrategy):
         If price spiked UP, bet on DOWN (NO on "price up" market)
         If price spiked DOWN, bet on UP (YES on "price up" market)
 
+        Enhanced with TA confirmation from PolymarketBTC15mAssistant approach:
+        - RSI oversold/overbought confirmation
+        - Regime detection (avoid trading in strong trends)
+        - MACD histogram divergence check
+
         Args:
             market: Polymarket market
             spike: Detected spike
@@ -283,9 +302,11 @@ class SpikeReversionStrategy(BaseStrategy):
             # Price went up, bet it comes back down
             # This typically means betting NO on "price up" markets
             outcome = "No"
+            reversion_direction = "down"
         else:
             # Price went down, bet it comes back up
             outcome = "Yes"
+            reversion_direction = "up"
 
         # Get token and price
         token_id = market.tokens.get(outcome)
@@ -294,15 +315,51 @@ class SpikeReversionStrategy(BaseStrategy):
 
         market_price = market.outcome_prices.get(outcome, 0.5)
 
-        # Calculate confidence based on spike magnitude
-        # Larger spikes more likely to revert (to a point)
+        # Base confidence from spike magnitude
         base_confidence = self.min_confidence
         magnitude_bonus = min(0.2, (spike.magnitude_pct - self.threshold_percent) * 0.05)
         confidence = min(0.9, base_confidence + magnitude_bonus)
 
+        # TA-enhanced confidence scoring
+        ta_confirmation = None
+        regime = None
+
+        if self.use_ta_confirmation:
+            ta_confirmation = self._get_ta_confirmation(spike, reversion_direction)
+
+            if ta_confirmation:
+                regime = ta_confirmation.get("regime")
+
+                # Regime filter - avoid trading reversions in strong trends
+                if self.ta_regime_filter and regime:
+                    if regime == MarketRegime.TREND_UP and spike.direction == "up":
+                        logger.debug(f"TA rejection: Strong uptrend, spike may continue")
+                        self._ta_rejections += 1
+                        return None
+                    if regime == MarketRegime.TREND_DOWN and spike.direction == "down":
+                        logger.debug(f"TA rejection: Strong downtrend, spike may continue")
+                        self._ta_rejections += 1
+                        return None
+
+                # Adjust confidence based on TA signals
+                ta_confidence_adj = ta_confirmation.get("confidence_adjustment", 0)
+                confidence = min(0.95, confidence + ta_confidence_adj)
+
+                # RSI confirmation boost
+                rsi_value = ta_confirmation.get("rsi_value", 50)
+                if spike.direction == "up" and rsi_value > 70:
+                    # RSI overbought confirms likely reversion
+                    confidence = min(0.95, confidence + 0.05)
+                    logger.debug(f"RSI overbought ({rsi_value:.1f}) confirms reversion")
+                elif spike.direction == "down" and rsi_value < 30:
+                    # RSI oversold confirms likely reversion
+                    confidence = min(0.95, confidence + 0.05)
+                    logger.debug(f"RSI oversold ({rsi_value:.1f}) confirms reversion")
+
         # Calculate fair value - we believe true probability is higher
-        # because spike will likely revert
-        fair_value = market_price + 0.05  # 5% edge assumption
+        # because spike will likely revert. Adjust based on TA confidence.
+        edge_multiplier = 0.05 + (confidence - 0.6) * 0.05  # 5-7% edge based on confidence
+        fair_value = market_price + edge_multiplier
 
         # Calculate EV
         ev = self.calculate_ev(fair_value, market_price, is_maker=True)
@@ -311,9 +368,24 @@ class SpikeReversionStrategy(BaseStrategy):
             logger.debug(f"Spike reversion EV too low: {ev:.3f}")
             return None
 
-        # Calculate position size (conservative)
+        # Calculate position size (conservative, scaled by confidence)
         max_size = balance * (self.position_size_percent / 100)
         max_size = min(max_size, self.max_position_size)
+
+        # Scale size by confidence (higher confidence = larger position)
+        size_multiplier = 0.5 + (confidence - 0.5)  # 0.5x to 1.0x based on confidence
+        adjusted_size = max_size * size_multiplier
+
+        # Build reason string with TA info
+        reason_parts = [
+            f"Spike reversion: {spike.asset} {spike.direction} "
+            f"{spike.magnitude_pct:.1f}%, betting on reversal"
+        ]
+        if ta_confirmation:
+            if regime:
+                reason_parts.append(f"regime={regime.value}")
+            if "rsi_value" in ta_confirmation:
+                reason_parts.append(f"RSI={ta_confirmation['rsi_value']:.0f}")
 
         signal = self.create_signal(
             market_id=market.condition_id,
@@ -322,12 +394,9 @@ class SpikeReversionStrategy(BaseStrategy):
             price=market_price,
             ev=ev,
             confidence=confidence,
-            reason=(
-                f"Spike reversion: {spike.asset} {spike.direction} "
-                f"{spike.magnitude_pct:.1f}%, betting on reversal"
-            ),
+            reason=" | ".join(reason_parts),
             balance=balance,
-            size=max_size,
+            size=adjusted_size,
             urgency="high",
             time_horizon_seconds=900,  # 15 minutes
         )
@@ -336,10 +405,103 @@ class SpikeReversionStrategy(BaseStrategy):
 
         logger.info(
             f"REVERSION SIGNAL: {outcome} ${signal.size:.2f} @ {market_price:.4f} "
-            f"(spike={spike.direction} {spike.magnitude_pct:.1f}%, confidence={confidence:.2f})"
+            f"(spike={spike.direction} {spike.magnitude_pct:.1f}%, confidence={confidence:.2f}, "
+            f"regime={regime.value if regime else 'unknown'})"
         )
 
         return signal
+
+    def _get_ta_confirmation(
+        self,
+        spike: SpikeEvent,
+        reversion_direction: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get technical analysis confirmation for a reversion trade.
+
+        Uses RSI, MACD, and regime detection to assess whether
+        the spike is likely to revert.
+
+        Args:
+            spike: Detected spike event
+            reversion_direction: Direction we're betting on ("up" or "down")
+
+        Returns:
+            Dict with TA confirmation data or None
+        """
+        try:
+            # Get price history for TA calculations
+            price_history = self.price_feeds.get_price_history(
+                spike.asset,
+                periods=50,
+                interval_seconds=60,  # 1-minute bars
+            )
+
+            if not price_history or len(price_history) < 20:
+                logger.debug(f"Insufficient price history for TA ({len(price_history) if price_history else 0} bars)")
+                return None
+
+            prices = [p["close"] for p in price_history]
+            volumes = [p.get("volume", 0) for p in price_history]
+
+            # Calculate RSI
+            rsi_result = self.ta_indicators.calculate_rsi(prices, period=14)
+
+            # Calculate MACD
+            macd_result = self.ta_indicators.calculate_macd(prices)
+
+            # Detect regime
+            highs = [p.get("high", p["close"]) for p in price_history]
+            lows = [p.get("low", p["close"]) for p in price_history]
+            regime = self.regime_detector.detect(
+                prices=prices,
+                highs=highs,
+                lows=lows,
+                volumes=volumes,
+            )
+
+            # Calculate confidence adjustment
+            confidence_adj = 0.0
+
+            # RSI extremes increase confidence in reversion
+            if rsi_result:
+                if rsi_result.is_overbought and reversion_direction == "down":
+                    confidence_adj += 0.1
+                elif rsi_result.is_oversold and reversion_direction == "up":
+                    confidence_adj += 0.1
+                # Moderate zones suggest less certain reversion
+                elif 40 <= rsi_result.value <= 60:
+                    confidence_adj -= 0.05
+
+            # MACD divergence check
+            if macd_result:
+                if macd_result.histogram_rising and reversion_direction == "up":
+                    confidence_adj += 0.05
+                elif not macd_result.histogram_rising and reversion_direction == "down":
+                    confidence_adj += 0.05
+
+            # Regime considerations
+            if regime:
+                if regime.regime == MarketRegime.RANGE:
+                    # Range-bound markets favor mean reversion
+                    confidence_adj += 0.1
+                elif regime.regime == MarketRegime.CHOP:
+                    # Choppy markets are uncertain
+                    confidence_adj -= 0.05
+
+            return {
+                "rsi_value": rsi_result.value if rsi_result else 50,
+                "rsi_zone": rsi_result.zone if rsi_result else "neutral",
+                "macd_histogram": macd_result.histogram if macd_result else 0,
+                "macd_rising": macd_result.histogram_rising if macd_result else None,
+                "regime": regime.regime if regime else None,
+                "regime_strength": regime.strength if regime else 0,
+                "confidence_adjustment": confidence_adj,
+            }
+
+        except Exception as e:
+            logger.warning(f"TA confirmation failed: {e}")
+            return None
 
     def record_outcome(self, market_id: str, was_successful: bool) -> None:
         """
@@ -385,5 +547,7 @@ class SpikeReversionStrategy(BaseStrategy):
             "monitored_assets": self.monitored_assets,
             "threshold_percent": self.threshold_percent,
             "recent_spikes_24h": len(self.get_recent_spikes(24)),
+            "ta_rejections": self._ta_rejections,
+            "ta_confirmation_enabled": self.use_ta_confirmation,
         })
         return stats

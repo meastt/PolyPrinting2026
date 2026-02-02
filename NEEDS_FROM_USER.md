@@ -2,7 +2,52 @@
 
 This document lists everything you'll need to provide or configure to run the PolyPrinting2026 trading bot.
 
-## 1. Polymarket API Credentials (Required for Live Trading)
+---
+
+## 🇺🇸 Option A: Kalshi (US Legal - Recommended for US Users)
+
+### 1. Kalshi API Credentials
+
+You need to obtain API credentials from Kalshi:
+
+```bash
+# Store in ~/.kalshi_env or environment variables
+KALSHI_API_KEY_ID=<your_api_key_id>
+KALSHI_PRIVATE_KEY_PATH=/path/to/private_key.pem
+# OR inline PEM (useful for cloud deployment):
+# KALSHI_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
+```
+
+### How to Get These:
+1. Go to [Kalshi.com](https://kalshi.com) and create an account
+2. **Verify your identity** (required - US government ID)
+3. Navigate to **Settings → API**
+4. Click "Create new API key"
+5. Download and save the **private key PEM file** securely
+6. Store the **API Key ID** shown on screen
+
+### Security Best Practices:
+```bash
+# Secure your private key
+chmod 600 ~/.kalshi/private_key.pem
+
+# Never commit keys to git!
+echo "*.pem" >> .gitignore
+echo "*_env" >> .gitignore
+```
+
+### Resources:
+- [Kalshi API Documentation](https://docs.kalshi.com)
+- [Kalshi Help Center](https://help.kalshi.com/kalshi-api)
+- [Kalshi Discord](https://discord.gg/kalshi) - #dev channel for API support
+
+---
+
+## 🌍 Option B: Polymarket (Non-US Only)
+
+> ⚠️ **WARNING**: Polymarket is NOT available in the USA. US users must use Kalshi.
+
+### 1. Polymarket API Credentials (Required for Live Trading)
 
 You need to obtain API credentials from Polymarket:
 
@@ -50,7 +95,26 @@ If you want to run the bot continuously on a cloud server:
 
 ---
 
-## 3. Funding (USDC on Polygon)
+## 3. Funding Your Account
+
+### For Kalshi (US):
+
+Kalshi accepts multiple deposit methods:
+
+1. **USDC** (Recommended): Fast, low fees via ZeroHash
+2. **Bank Transfer (ACH)**: Free, 1-3 business days
+3. **Debit Card**: Higher fees, instant
+4. **Bitcoin/Solana**: Via ZeroHash partner
+
+**Starting Capital**: The bot is designed for $50 minimum
+
+To deposit:
+1. Log into Kalshi
+2. Click "Deposit" in top right
+3. Choose your deposit method
+4. Follow instructions
+
+### For Polymarket (Non-US):
 
 To trade, you need USDC deposited in your Polymarket wallet:
 
@@ -145,20 +209,34 @@ Some API details may need verification with current Polymarket documentation:
 
 ## Quick Start After Providing Credentials
 
-Once you have everything:
+### For Kalshi (US Users):
+
+```bash
+# 1. Set up environment
+export KALSHI_API_KEY_ID="your-key-id"
+export KALSHI_PRIVATE_KEY_PATH="~/.kalshi/private_key.pem"
+
+# 2. Test connection
+python -c "from src.api import KalshiClient; c = KalshiClient(use_demo=True); print(c.health_check())"
+
+# 3. Test in simulation (uses demo API)
+python main.py --exchange kalshi --simulation
+
+# 4. When ready, go live
+python main.py --exchange kalshi --live
+```
+
+### For Polymarket (Non-US Users):
 
 ```bash
 # 1. Set up environment
 source ~/.polymarket_env
 
-# 2. Run backtest first
-python -m src.main --backtest --days 30
+# 2. Test in simulation
+python main.py --exchange polymarket --simulation
 
-# 3. Test in simulation
-python -m src.main --simulation
-
-# 4. When ready, go live
-python -m src.main --live
+# 3. When ready, go live
+python main.py --exchange polymarket --live
 ```
 
 **Remember**: Start small, test thoroughly, and never risk more than you can afford to lose!

@@ -10,7 +10,10 @@ general:
   # ALWAYS start with simulation to test your setup!
   mode: "simulation"
 
-  # Starting balance in USDC (for simulation mode tracking)
+  # Exchange to use: "kalshi" (US legal) or "polymarket" (non-US)
+  exchange: "kalshi"
+
+  # Starting balance in USD (for simulation mode tracking)
   starting_balance: 50.0
 
   # Main loop polling interval (seconds)
@@ -29,13 +32,35 @@ general:
 # API Configuration
 # =============================================================================
 api:
-  # Polymarket CLOB API endpoints
-  # Production: https://clob.polymarket.com
-  # See: https://github.com/Polymarket/py-clob-client
-  polymarket_host: "https://clob.polymarket.com"
+  # -------------------------------------------------------------------------
+  # Kalshi API (US Legal - CFTC Regulated)
+  # https://docs.kalshi.com
+  # -------------------------------------------------------------------------
+  kalshi:
+    # Use demo environment for testing (no real money)
+    use_demo: true
 
-  # Gamma API for leaderboard/analytics (if available)
-  gamma_host: "https://gamma-api.polymarket.com"
+    # Production: https://trading-api.kalshi.com/trade-api/v2
+    # Demo: https://demo-api.kalshi.co/trade-api/v2
+    # (URLs are set automatically based on use_demo flag)
+
+    # Authentication Method 1: RSA-PSS (Recommended)
+    # Generate API key at: https://kalshi.com/settings/api
+    # api_key_id: "YOUR_API_KEY_ID"
+    # private_key_path: "/path/to/your/private_key.pem"
+
+    # Authentication Method 2: Email/Password (Alternative)
+    # Less secure, but simpler for testing
+    # email: "your@email.com"
+    # password: "your_password"
+
+  # -------------------------------------------------------------------------
+  # Polymarket API (Non-US only - banned in USA)
+  # https://github.com/Polymarket/py-clob-client
+  # -------------------------------------------------------------------------
+  polymarket:
+    host: "https://clob.polymarket.com"
+    gamma_host: "https://gamma-api.polymarket.com"
 
   # Rate limiting (requests per second)
   rate_limit: 10
@@ -143,6 +168,7 @@ strategies:
   # -------------------------------------------------------------------------
   # Volatility Spike Reversion Strategy
   # Bet on mean reversion after sharp spot price moves
+  # Enhanced with TA confirmation from PolymarketBTC15mAssistant approach
   # -------------------------------------------------------------------------
   spike_reversion:
     enabled: true
@@ -174,6 +200,16 @@ strategies:
 
     # Spot price polling interval (seconds)
     price_poll_interval: 1.0
+
+    # TA Enhancement (PolymarketBTC15mAssistant-inspired)
+    # Use technical analysis to confirm reversion signals
+    use_ta_confirmation: true
+
+    # Confidence boost from TA signals (added to base confidence)
+    ta_confidence_boost: 0.1
+
+    # Filter trades that go against regime (e.g., don't short in uptrend)
+    regime_filter: true
 
   # -------------------------------------------------------------------------
   # Selective Copy Trading Strategy
@@ -209,6 +245,104 @@ strategies:
 
     # Refresh trader list interval (seconds)
     refresh_interval: 3600  # 1 hour
+
+  # -------------------------------------------------------------------------
+  # BTC 15-Minute TA Strategy (PolymarketBTC15mAssistant-inspired)
+  # Technical analysis enhanced trading for 15-minute crypto markets
+  # Combines RSI, MACD, VWAP, Heiken Ashi for signal generation
+  # -------------------------------------------------------------------------
+  btc_15m_ta:
+    enabled: true
+
+    # Assets to trade with TA strategy
+    assets:
+      - "BTC"
+      - "ETH"
+
+    # Technical Analysis Settings
+    # RSI Configuration
+    rsi:
+      period: 14
+      overbought: 70
+      oversold: 30
+
+    # MACD Configuration
+    macd:
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+
+    # VWAP Settings
+    vwap:
+      period: 14  # Number of candles for VWAP
+
+    # Heiken Ashi smoothing
+    heiken_ashi:
+      enabled: true
+
+    # Signal Scoring
+    scoring:
+      # Minimum score to generate signal (-1 to 1 scale)
+      min_score: 0.3
+
+      # Minimum probability (after converting score to probability)
+      min_probability: 0.55
+
+      # Indicator weights for scoring
+      weights:
+        rsi: 0.25
+        macd: 0.25
+        vwap: 0.20
+        heiken_ashi: 0.20
+        momentum: 0.10
+
+    # Edge Calculation
+    edge:
+      # Phase-based thresholds (inspired by PolymarketBTC15mAssistant)
+      early_threshold: 0.05    # >10 min remaining: 5% edge required
+      mid_threshold: 0.10      # 5-10 min remaining: 10% edge
+      late_threshold: 0.20     # <5 min remaining: 20% edge
+
+      # Use maker orders for rebates
+      use_maker_orders: true
+
+    # Regime Detection
+    regime:
+      # Don't trade against strong trends
+      filter_strong_trends: true
+
+      # Trend strength threshold (0-1)
+      trend_threshold: 0.7
+
+      # Prefer range-bound markets for reversion strategies
+      prefer_range: true
+
+    # Position Sizing
+    sizing:
+      # Base position size as percent of balance
+      base_size_percent: 1.5
+
+      # Maximum position size (USDC)
+      max_position: 3.0
+
+      # Scale position with confidence (0.5x to 1.5x based on TA alignment)
+      confidence_scaling: true
+
+    # Market Selection
+    markets:
+      # Only trade markets with specific time windows
+      target_resolution_minutes:
+        - 15
+        - 60
+
+      # Minimum liquidity
+      min_liquidity: 200
+
+    # WebSocket Price Feed (real-time data)
+    websocket:
+      enabled: true
+      exchanges:
+        - "binance"
 
 # =============================================================================
 # Risk Management

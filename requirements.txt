@@ -34,10 +34,15 @@ pyyaml>=6.0.1
 python-dotenv>=1.0.0
 
 # =====================================================
-# Ethereum / Web3 (required by py-clob-client)
+# Ethereum / Web3 (required by py-clob-client for Polymarket)
 # =====================================================
 web3>=6.15.0
 eth-account>=0.11.0
+
+# =====================================================
+# Cryptography (required for Kalshi RSA-PSS auth)
+# =====================================================
+cryptography>=42.0.0
 
 # =====================================================
 # Monitoring & Metrics (Optional)

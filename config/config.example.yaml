@@ -10,7 +10,10 @@ general:
   # ALWAYS start with simulation to test your setup!
   mode: "simulation"
 
-  # Starting balance in USDC (for simulation mode tracking)
+  # Exchange to use: "kalshi" (US legal) or "polymarket" (non-US)
+  exchange: "kalshi"
+
+  # Starting balance in USD (for simulation mode tracking)
   starting_balance: 50.0
 
   # Main loop polling interval (seconds)
@@ -29,13 +32,35 @@ general:
 # API Configuration
 # =============================================================================
 api:
-  # Polymarket CLOB API endpoints
-  # Production: https://clob.polymarket.com
-  # See: https://github.com/Polymarket/py-clob-client
-  polymarket_host: "https://clob.polymarket.com"
+  # -------------------------------------------------------------------------
+  # Kalshi API (US Legal - CFTC Regulated)
+  # https://docs.kalshi.com
+  # -------------------------------------------------------------------------
+  kalshi:
+    # Use demo environment for testing (no real money)
+    use_demo: true
 
-  # Gamma API for leaderboard/analytics (if available)
-  gamma_host: "https://gamma-api.polymarket.com"
+    # Production: https://trading-api.kalshi.com/trade-api/v2
+    # Demo: https://demo-api.kalshi.co/trade-api/v2
+    # (URLs are set automatically based on use_demo flag)
+
+    # Authentication Method 1: RSA-PSS (Recommended)
+    # Generate API key at: https://kalshi.com/settings/api
+    # api_key_id: "YOUR_API_KEY_ID"
+    # private_key_path: "/path/to/your/private_key.pem"
+
+    # Authentication Method 2: Email/Password (Alternative)
+    # Less secure, but simpler for testing
+    # email: "your@email.com"
+    # password: "your_password"
+
+  # -------------------------------------------------------------------------
+  # Polymarket API (Non-US only - banned in USA)
+  # https://github.com/Polymarket/py-clob-client
+  # -------------------------------------------------------------------------
+  polymarket:
+    host: "https://clob.polymarket.com"
+    gamma_host: "https://gamma-api.polymarket.com"
 
   # Rate limiting (requests per second)
   rate_limit: 10

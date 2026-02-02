@@ -1,14 +1,28 @@
-# PolyPrinting2026 - Automated Polymarket Trading Bot
+# PolyPrinting2026 - Automated Prediction Market Trading Bot
 
-An automated trading bot for Polymarket prediction markets, designed to run 24/7 on Oracle Cloud Infrastructure (OCI). Implements low-risk, high-potential strategies optimized for small capital ($50 USDC start) with compounding micro-trades.
+An automated trading bot for **Kalshi** (US legal) and Polymarket (non-US) prediction markets, designed to run 24/7 on Oracle Cloud Infrastructure (OCI). Implements low-risk, high-potential strategies optimized for small capital ($50 start) with compounding micro-trades.
+
+## 🇺🇸 US Legal Trading with Kalshi
+
+**Kalshi is the recommended exchange for US-based traders.** It's CFTC-regulated as a Designated Contract Market (DCM), making it fully legal for US residents. Key advantages:
+
+- ✅ **US Legal**: CFTC-regulated, same legal status as commodity exchanges
+- ✅ **Zero Maker Fees**: No fees on resting (limit) orders!
+- ✅ **Hourly Crypto Markets**: Perfect for spike reversion strategies
+- ✅ **BTC/ETH Price Markets**: 50+ crypto prediction markets
+- ✅ **USDC/BTC/SOL Deposits**: Crypto-native funding
+
+For non-US users, Polymarket remains an option.
 
 ## ⚠️ Important Disclaimers
 
 - **Risk Warning**: Trading prediction markets involves significant risk. You can lose your entire investment.
-- **Legal Compliance**: Ensure Polymarket is legal in your jurisdiction. Review [Polymarket Terms of Service](https://polymarket.com/tos).
-- **Fee Awareness**: Post-2026 fee updates may affect profitability. This bot prioritizes maker orders (rebates) over taker orders (3% fees).
+- **Legal Compliance**:
+  - **US users**: Kalshi is legal and CFTC-regulated
+  - **Non-US users**: Check local laws. Polymarket may be available.
+- **Fee Awareness**: Kalshi has zero fees on maker orders; taker fees apply. This bot prioritizes maker orders.
 - **No Guarantees**: Past performance does not guarantee future results. Start in simulation mode.
-- **API Limits**: Respect Polymarket rate limits. Excessive requests may result in bans.
+- **API Limits**: Respect rate limits. Excessive requests may result in bans.
 
 ## 🎯 Strategies Overview
 
@@ -21,14 +35,89 @@ An automated trading bot for Polymarket prediction markets, designed to run 24/7
 
 ## 📋 Table of Contents
 
-1. [Oracle Cloud Setup](#oracle-cloud-setup)
-2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [Running the Bot](#running-the-bot)
-5. [Monitoring](#monitoring)
-6. [Backtesting](#backtesting)
-7. [Architecture](#architecture)
-8. [Troubleshooting](#troubleshooting)
+1. [Kalshi Account Setup](#kalshi-account-setup) (US users)
+2. [Oracle Cloud Setup](#oracle-cloud-setup)
+3. [Installation](#installation)
+4. [Configuration](#configuration)
+5. [Running the Bot](#running-the-bot)
+6. [Monitoring](#monitoring)
+7. [Backtesting](#backtesting)
+8. [Architecture](#architecture)
+9. [Troubleshooting](#troubleshooting)
+
+---
+
+## Kalshi Account Setup
+
+### Step 1: Create Kalshi Account
+
+1. Go to [Kalshi.com](https://kalshi.com)
+2. Click "Sign Up" and complete registration
+3. **Verify your identity** (required for trading - US government ID + selfie)
+4. Wait for verification approval (usually 1-2 business days)
+
+### Step 2: Fund Your Account
+
+Kalshi accepts multiple funding methods:
+
+```
+Deposit Options:
+├── USDC (crypto)     - Fastest, lowest fees
+├── Bank Transfer     - ACH (US banks only)
+├── Debit Card        - Higher fees, instant
+├── Bitcoin (BTC)     - Via ZeroHash partner
+└── Solana (SOL)      - Via ZeroHash partner
+```
+
+For this bot with $50 starting capital, USDC is recommended.
+
+### Step 3: Generate API Keys
+
+1. Log into Kalshi and go to **Settings → API**
+2. Click "Create new API key"
+3. You'll receive:
+   - **API Key ID**: A public identifier
+   - **Private Key (PEM)**: Download and save securely!
+
+4. Save the private key file:
+```bash
+# On your server/local machine
+mkdir -p ~/.kalshi
+# Copy the downloaded private key
+mv ~/Downloads/kalshi-private-key.pem ~/.kalshi/private_key.pem
+chmod 600 ~/.kalshi/private_key.pem
+```
+
+### Step 4: Test API Connection
+
+```python
+# Quick test script
+from src.api.kalshi_client import KalshiClient
+
+client = KalshiClient(
+    api_key_id="your-key-id",
+    private_key_path="~/.kalshi/private_key.pem",
+    use_demo=True  # Use demo for testing!
+)
+
+# Check connection
+print(f"API Health: {client.health_check()}")
+print(f"Balance: ${client.get_balance():.2f}")
+
+# Get crypto markets
+markets = client.get_crypto_markets("BTC")
+print(f"Found {len(markets)} BTC markets")
+```
+
+### Kalshi Fee Structure (Important!)
+
+| Order Type | Fee |
+|------------|-----|
+| **Maker (Resting)** | **0%** - Free! |
+| Taker (Crossing) | ~1-2% |
+| Settlement | Included |
+
+**This bot prioritizes maker orders to achieve zero-fee trading!**
 
 ---
 

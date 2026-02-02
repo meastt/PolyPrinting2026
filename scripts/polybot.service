@@ -1,0 +1,63 @@
+# PolyPrinting2026 - Systemd Service File
+#
+# Installation:
+#   sudo cp polybot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable polybot
+#   sudo systemctl start polybot
+#
+# Management:
+#   sudo systemctl status polybot
+#   sudo systemctl stop polybot
+#   sudo systemctl restart polybot
+#   sudo journalctl -u polybot -f
+
+[Unit]
+Description=PolyPrinting2026 - Polymarket Trading Bot
+Documentation=https://github.com/YOUR_USERNAME/PolyPrinting2026
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+
+# Working directory (update path as needed)
+WorkingDirectory=/home/ubuntu/polymarket-bot
+
+# Environment file with API keys (create this file with your secrets)
+EnvironmentFile=/home/ubuntu/.polymarket_env
+
+# Python virtual environment activation and bot execution
+ExecStart=/home/ubuntu/polymarket-bot/venv/bin/python -m src.main
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Stop signal (allow graceful shutdown)
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+
+# Allow write access to logs directory
+ReadWritePaths=/home/ubuntu/polymarket-bot/logs
+ReadWritePaths=/home/ubuntu/polymarket-bot/data
+
+# Resource limits (adjust based on your instance)
+MemoryMax=512M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

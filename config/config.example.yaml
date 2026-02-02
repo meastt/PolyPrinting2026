@@ -1,0 +1,305 @@
+# PolyPrinting2026 Configuration
+# Copy this file to config.yaml and customize
+# IMPORTANT: Never commit config.yaml with real values!
+
+# =============================================================================
+# General Settings
+# =============================================================================
+general:
+  # Operating mode: "simulation" (paper trading) or "live" (real money)
+  # ALWAYS start with simulation to test your setup!
+  mode: "simulation"
+
+  # Starting balance in USDC (for simulation mode tracking)
+  starting_balance: 50.0
+
+  # Main loop polling interval (seconds)
+  # Lower = more responsive but higher API usage
+  # Recommended: 2-5 seconds
+  poll_interval_seconds: 2
+
+  # Logging level: DEBUG, INFO, WARNING, ERROR
+  log_level: "INFO"
+
+  # Enable/disable Prometheus metrics exporter
+  enable_metrics: true
+  metrics_port: 9090
+
+# =============================================================================
+# API Configuration
+# =============================================================================
+api:
+  # Polymarket CLOB API endpoints
+  # Production: https://clob.polymarket.com
+  # See: https://github.com/Polymarket/py-clob-client
+  polymarket_host: "https://clob.polymarket.com"
+
+  # Gamma API for leaderboard/analytics (if available)
+  gamma_host: "https://gamma-api.polymarket.com"
+
+  # Rate limiting (requests per second)
+  rate_limit: 10
+
+  # Retry settings for failed requests
+  max_retries: 3
+  retry_delay_seconds: 1.0
+
+  # Request timeout (seconds)
+  timeout: 30
+
+# =============================================================================
+# Market Filters
+# =============================================================================
+markets:
+  # Focus on crypto-related markets
+  focus_categories:
+    - "Crypto"
+    - "Bitcoin"
+    - "Ethereum"
+
+  # Market types to trade
+  market_types:
+    - "binary"  # YES/NO markets
+
+  # Time filters
+  # Only trade markets resolving within this window (hours)
+  min_time_to_resolution: 0.25  # 15 minutes
+  max_time_to_resolution: 24    # 24 hours
+
+  # Minimum liquidity requirements (USDC)
+  min_liquidity: 100
+
+  # Excluded market keywords (avoid complex/ambiguous markets)
+  excluded_keywords:
+    - "conditional"
+    - "multi"
+
+# =============================================================================
+# Strategy Configuration
+# =============================================================================
+strategies:
+  # -------------------------------------------------------------------------
+  # YES/NO Arbitrage Strategy
+  # Inspired by Moltbot community tactics
+  # Risk-free when YES + NO price < $1 (accounting for fees)
+  # -------------------------------------------------------------------------
+  arbitrage:
+    enabled: true
+
+    # Minimum inefficiency required (YES + NO < 1 - min_spread)
+    # 0.01 = 1% guaranteed profit minimum
+    min_spread: 0.01
+
+    # Maximum position size per arbitrage opportunity (USDC)
+    max_position_size: 5.0
+
+    # Minimum position size (USDC)
+    min_position_size: 1.0
+
+    # Order type: "maker" (limit orders) or "taker" (market orders)
+    # Prefer maker to avoid 3% taker fees
+    order_type: "maker"
+
+    # Price buffer for maker orders (how much worse than mid to post)
+    # Higher = more likely to fill, lower profit
+    maker_buffer: 0.005  # 0.5%
+
+    # Cancel unfilled orders after (seconds)
+    order_timeout: 60
+
+  # -------------------------------------------------------------------------
+  # Maker Market Making Strategy
+  # Earn rebates by providing liquidity
+  # -------------------------------------------------------------------------
+  market_making:
+    enabled: true
+
+    # Spread offset from fair value (each side)
+    # 0.02 = post bids 2% below FV, asks 2% above
+    spread_offset: 0.02
+
+    # Order size per side (USDC)
+    order_size: 2.0
+
+    # Number of price levels to quote
+    num_levels: 1
+
+    # Level spacing (additional offset per level)
+    level_spacing: 0.01
+
+    # Minimum edge over fair value to maintain orders
+    min_edge: 0.005
+
+    # Rebalance threshold (cancel and re-quote if price moves this much)
+    rebalance_threshold: 0.02
+
+    # Maximum inventory imbalance (net position / order size)
+    max_inventory_ratio: 3.0
+
+    # Markets to focus on (by condition_id or slug)
+    # Leave empty to scan all eligible markets
+    target_markets: []
+
+  # -------------------------------------------------------------------------
+  # Volatility Spike Reversion Strategy
+  # Bet on mean reversion after sharp spot price moves
+  # -------------------------------------------------------------------------
+  spike_reversion:
+    enabled: true
+
+    # Minimum price move to trigger (percent)
+    # 3.0 = 3% move in lookback window
+    threshold_percent: 3.0
+
+    # Lookback window for detecting spikes (seconds)
+    lookback_seconds: 60
+
+    # Cooldown after triggering (seconds)
+    # Prevents over-trading on continued volatility
+    cooldown_seconds: 300
+
+    # Position size as percent of balance
+    position_size_percent: 1.0
+
+    # Maximum position size (USDC)
+    max_position_size: 2.0
+
+    # Confidence threshold (based on historical reversion rate)
+    min_confidence: 0.6
+
+    # Assets to monitor for spikes
+    monitored_assets:
+      - "BTC"
+      - "ETH"
+
+    # Spot price polling interval (seconds)
+    price_poll_interval: 1.0
+
+  # -------------------------------------------------------------------------
+  # Selective Copy Trading Strategy
+  # Mirror top performers with edge filter
+  # -------------------------------------------------------------------------
+  copy_trading:
+    enabled: false  # Requires Gamma API access
+
+    # Number of top traders to monitor
+    num_traders: 10
+
+    # Minimum win rate for a trader to copy
+    min_win_rate: 0.55
+
+    # Minimum edge over fair value to copy a trade
+    min_edge: 0.04  # 4%
+
+    # Copy size as fraction of trader's position
+    copy_fraction: 0.001  # 0.1%
+
+    # Minimum copy size (USDC)
+    min_copy_size: 1.0
+
+    # Maximum copy size (USDC)
+    max_copy_size: 5.0
+
+    # Only copy trades in these categories
+    allowed_categories:
+      - "Crypto"
+
+    # Delay before copying (seconds) - avoid front-running detection
+    copy_delay: 5
+
+    # Refresh trader list interval (seconds)
+    refresh_interval: 3600  # 1 hour
+
+# =============================================================================
+# Risk Management
+# =============================================================================
+risk:
+  # Maximum position size as percent of balance
+  max_position_percent: 2.0
+
+  # Maximum total exposure (sum of all positions) as percent of balance
+  max_total_exposure_percent: 20.0
+
+  # Maximum number of concurrent open positions
+  max_open_positions: 10
+
+  # Daily drawdown limit (stop trading if daily loss exceeds this)
+  # 0.05 = 5% of starting balance
+  daily_drawdown_limit: 0.05
+
+  # Weekly drawdown limit
+  weekly_drawdown_limit: 0.15
+
+  # Minimum balance to continue trading (USDC)
+  min_balance: 10.0
+
+  # Maximum single trade loss (USDC)
+  max_single_loss: 5.0
+
+  # Volatility filter: pause trading if market vol exceeds threshold
+  max_volatility: 0.10  # 10% hourly volatility
+
+  # Emergency stop: halt all trading and cancel orders
+  enable_emergency_stop: true
+
+  # Correlation limit: max exposure to correlated positions
+  max_correlation_exposure: 0.5
+
+# =============================================================================
+# Expected Value (EV) Calculation
+# =============================================================================
+ev:
+  # Minimum EV threshold to execute a trade
+  # 0.02 = 2% expected profit minimum
+  min_ev: 0.02
+
+  # Fee assumptions
+  taker_fee: 0.03      # 3% taker fee (avoid!)
+  maker_rebate: 0.01   # 1% maker rebate (current phase)
+
+  # Slippage estimate for larger orders
+  slippage_per_dollar: 0.001  # 0.1% per $1 traded
+
+  # Confidence discount (reduce EV by uncertainty)
+  confidence_discount: 0.1  # 10% haircut on calculated EV
+
+# =============================================================================
+# Logging & Output
+# =============================================================================
+logging:
+  # Log file paths (relative to project root)
+  main_log: "logs/polybot.log"
+  trade_log: "logs/trades.csv"
+  pnl_log: "logs/daily_pnl.csv"
+  error_log: "logs/errors.log"
+
+  # Log rotation
+  max_log_size_mb: 10
+  backup_count: 5
+
+  # Console output
+  console_logging: true
+
+  # Encrypted logging (obfuscate sensitive data)
+  encrypt_sensitive: true
+
+# =============================================================================
+# Backtest Settings
+# =============================================================================
+backtest:
+  # Historical data source
+  data_source: "api"  # "api" or "csv"
+
+  # Data directory for cached/downloaded data
+  data_dir: "data/historical"
+
+  # Default backtest parameters
+  default_days: 30
+  default_balance: 50.0
+
+  # Simulation settings
+  include_fees: true
+  include_slippage: true
+
+  # Report output
+  report_dir: "logs/backtest_reports"

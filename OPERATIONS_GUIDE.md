@@ -120,7 +120,7 @@ Logs are saved to `logs/` directory:
 
 ```
 logs/
-├── polybot.log      # Main activity log
+├── trading.log      # Main activity log
 ├── trades.csv       # All trades in CSV format
 ├── daily_pnl.csv    # Daily profit/loss summary
 └── errors.log       # Errors only
@@ -129,10 +129,10 @@ logs/
 **View live logs:**
 ```bash
 # Follow main log
-tail -f logs/polybot.log
+tail -f logs/trading.log
 
 # Watch for trades only
-tail -f logs/polybot.log | grep "Trade executed"
+tail -f logs/trading.log | grep "Trade executed"
 
 # Watch for errors
 tail -f logs/errors.log
@@ -242,7 +242,7 @@ Create a monitoring script `monitor.sh`:
 #!/bin/bash
 # Run every 5 minutes via cron
 
-LOG_FILE="/home/user/PolyPrinting2026/logs/polybot.log"
+LOG_FILE="/home/user/PolyPrinting2026/logs/trading.log"
 WEBHOOK="https://discord.com/api/webhooks/YOUR_URL"
 
 # Check if bot is running
@@ -351,16 +351,16 @@ for order in orders:
 pgrep -f "main.py" && echo "✅ Running" || echo "❌ Stopped"
 
 # Current balance (from logs)
-grep "Balance:" logs/polybot.log | tail -1
+grep "Balance:" logs/trading.log | tail -1
 
 # Today's trades
-grep "Trade executed" logs/polybot.log | grep "$(date +%Y-%m-%d)" | wc -l
+grep "Trade executed" logs/trading.log | grep "$(date +%Y-%m-%d)" | wc -l
 
 # Recent errors
-grep "ERROR\|CRITICAL" logs/polybot.log | tail -5
+grep "ERROR\|CRITICAL" logs/trading.log | tail -5
 
 # Win/loss count today
-grep "Position closed" logs/polybot.log | grep "$(date +%Y-%m-%d)"
+grep "Position closed" logs/trading.log | grep "$(date +%Y-%m-%d)"
 ```
 
 ---
@@ -414,4 +414,4 @@ Quiet periods are normal - the bot waits for high-confidence opportunities!
 
 - Check `logs/errors.log` for issues
 - Join [Kalshi Discord](https://discord.gg/kalshi) #dev channel
-- Review strategy stats: `grep "get_stats" logs/polybot.log`
+- Review strategy stats: `grep "get_stats" logs/trading.log`

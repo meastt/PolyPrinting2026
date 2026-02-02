@@ -161,13 +161,24 @@ Review and customize `config/config.yaml` for your preferences:
 
 ## 6. Verification Checklist
 
+### For Kalshi (US Users):
+
 Before going live, verify:
+
+- [ ] API credentials set (`KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`)
+- [ ] Private key file secured with `chmod 600`
+- [ ] Funds deposited to Kalshi account
+- [ ] Configuration reviewed and customized
+- [ ] Simulation mode tested (uses demo API)
+- [ ] Understood risk warnings in README
+- [ ] Alerts configured (Discord/Telegram/Email)
+
+### For Polymarket (Non-US Users):
 
 - [ ] API credentials are set in `~/.polymarket_env`
 - [ ] USDC deposited to Polymarket wallet
 - [ ] MATIC available for gas fees
 - [ ] Configuration reviewed and customized
-- [ ] Backtest completed successfully
 - [ ] Simulation mode tested for 24+ hours
 - [ ] Understood risk warnings in README
 
@@ -179,31 +190,26 @@ Before going live, verify:
 
 2. **Monitoring**: Will you check the bot regularly? Set up alerts if needed.
 
-3. **Legal**: Is Polymarket available and legal in your jurisdiction?
+3. **Legal**:
+   - **US users**: Kalshi is CFTC-regulated and legal
+   - **Non-US users**: Check if Polymarket is available in your jurisdiction
 
 4. **Tax**: Track your trades for tax reporting purposes.
 
 ---
 
-## 8. API Details I Couldn't Verify
+## 8. Support & Resources
 
-Some API details may need verification with current Polymarket documentation:
+**Kalshi (US Legal):**
+- [Kalshi API Documentation](https://docs.kalshi.com/)
+- [Kalshi Help Center](https://help.kalshi.com/kalshi-api)
+- [Kalshi Discord](https://discord.gg/kalshi) - #dev channel
 
-1. **Gamma API Endpoints**: The leaderboard API endpoints are placeholders. Check if Polymarket has public trader leaderboard APIs.
+**Polymarket (Non-US):**
+- [py-clob-client Issues](https://github.com/Polymarket/py-clob-client/issues)
+- [Polymarket Discord](https://discord.gg/polymarket)
 
-2. **Fee Structure**: The current fee structure (3% taker, 1% maker rebate) should be verified with Polymarket's current terms.
-
-3. **Rate Limits**: Verify current API rate limits at [docs.polymarket.com](https://docs.polymarket.com/).
-
-4. **Market Categories**: The category filtering for "Crypto" markets assumes certain naming conventions. Verify market categorization.
-
----
-
-## 9. Support & Resources
-
-- **py-clob-client Issues**: [GitHub Issues](https://github.com/Polymarket/py-clob-client/issues)
-- **Polymarket Discord**: [Join Community](https://discord.gg/polymarket)
-- **This Bot Issues**: Create an issue in this repository
+**This Bot:** Create an issue in this repository
 
 ---
 

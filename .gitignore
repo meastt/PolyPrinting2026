@@ -119,9 +119,14 @@ dmypy.json
 config/config.yaml
 
 # Environment files with API keys
+.kalshi_env
 .polymarket_env
 *.env
 .env.*
+
+# Kalshi private keys
+.kalshi/
+*.pem
 
 # Logs
 logs/*.log

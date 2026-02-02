@@ -1,19 +1,19 @@
 # PolyPrinting2026 - Systemd Service File
 #
 # Installation:
-#   sudo cp polybot.service /etc/systemd/system/
+#   sudo cp tradingbot.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable polybot
-#   sudo systemctl start polybot
+#   sudo systemctl enable tradingbot
+#   sudo systemctl start tradingbot
 #
 # Management:
-#   sudo systemctl status polybot
-#   sudo systemctl stop polybot
-#   sudo systemctl restart polybot
-#   sudo journalctl -u polybot -f
+#   sudo systemctl status tradingbot
+#   sudo systemctl stop tradingbot
+#   sudo systemctl restart tradingbot
+#   sudo journalctl -u tradingbot -f
 
 [Unit]
-Description=PolyPrinting2026 - Polymarket Trading Bot
+Description=PolyPrinting2026 - Kalshi/Polymarket Trading Bot
 Documentation=https://github.com/YOUR_USERNAME/PolyPrinting2026
 After=network-online.target
 Wants=network-online.target
@@ -24,13 +24,16 @@ User=ubuntu
 Group=ubuntu
 
 # Working directory (update path as needed)
-WorkingDirectory=/home/ubuntu/polymarket-bot
+WorkingDirectory=/home/ubuntu/trading-bot
 
-# Environment file with API keys (create this file with your secrets)
-EnvironmentFile=/home/ubuntu/.polymarket_env
+# Environment file with API keys
+# For Kalshi (US): use kalshi_env
+# For Polymarket (non-US): use polymarket_env
+EnvironmentFile=/home/ubuntu/.kalshi_env
 
 # Python virtual environment activation and bot execution
-ExecStart=/home/ubuntu/polymarket-bot/venv/bin/python -m src.main
+# Change --exchange to 'polymarket' for non-US users
+ExecStart=/home/ubuntu/trading-bot/venv/bin/python main.py --exchange kalshi --live
 
 # Restart policy
 Restart=always
@@ -43,7 +46,7 @@ TimeoutStopSec=30
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=polybot
+SyslogIdentifier=tradingbot
 
 # Security hardening
 NoNewPrivileges=yes
@@ -52,8 +55,8 @@ ProtectHome=read-only
 PrivateTmp=yes
 
 # Allow write access to logs directory
-ReadWritePaths=/home/ubuntu/polymarket-bot/logs
-ReadWritePaths=/home/ubuntu/polymarket-bot/data
+ReadWritePaths=/home/ubuntu/trading-bot/logs
+ReadWritePaths=/home/ubuntu/trading-bot/data
 
 # Resource limits (adjust based on your instance)
 MemoryMax=512M

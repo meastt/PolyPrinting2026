@@ -193,7 +193,7 @@ def main():
     log_level = args.log_level or config.get("general", {}).get("log_level", "INFO")
     setup_logging(
         log_level=log_level,
-        log_file=config.get("logging", {}).get("main_log", "logs/polybot.log"),
+        log_file=config.get("logging", {}).get("main_log", "logs/trading.log"),
         enable_console=config.get("logging", {}).get("console_logging", True),
     )
 

@@ -402,7 +402,7 @@ ev:
 # =============================================================================
 logging:
   # Log file paths (relative to project root)
-  main_log: "logs/polybot.log"
+  main_log: "logs/trading.log"
   trade_log: "logs/trades.csv"
   pnl_log: "logs/daily_pnl.csv"
   error_log: "logs/errors.log"

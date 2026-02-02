@@ -81,7 +81,7 @@ _loggers = {}
 
 def setup_logging(
     log_level: str = "INFO",
-    log_file: Optional[str] = "logs/polybot.log",
+    log_file: Optional[str] = "logs/trading.log",
     max_size_mb: int = 10,
     backup_count: int = 5,
     enable_console: bool = True,

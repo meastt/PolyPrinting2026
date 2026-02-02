@@ -23,6 +23,17 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+# TA-based confidence adjustment factors
+TA_CONFIDENCE_FACTORS = {
+    "rsi_extreme": 0.15,      # RSI at extremes (< 30 or > 70)
+    "macd_confirm": 0.10,     # MACD confirms direction
+    "regime_favor": 0.10,     # Regime favorable for strategy
+    "vwap_confirm": 0.05,     # Price action confirms at VWAP
+    "heiken_trend": 0.10,     # Heiken Ashi trend alignment
+    "multi_signal": 0.15,     # Multiple indicators align
+}
+
+
 class RiskLevel(Enum):
     """Risk level classifications."""
     LOW = "low"
@@ -524,3 +535,221 @@ class RiskManager:
         if not self._volatility_readings:
             return 0
         return sum(self._volatility_readings) / len(self._volatility_readings)
+
+    def calculate_ta_adjusted_size(
+        self,
+        base_size: float,
+        ta_signals: Optional[Dict[str, Any]] = None,
+        edge: float = 0.0,
+        base_confidence: float = 0.6,
+    ) -> Dict[str, Any]:
+        """
+        Calculate position size adjusted by technical analysis signals.
+
+        Uses TA indicators to boost or reduce confidence, which affects
+        final position sizing. This is the PolymarketBTC15mAssistant-inspired
+        enhancement for smarter risk management.
+
+        Args:
+            base_size: Initial position size calculation
+            ta_signals: Dict with TA indicator results:
+                - rsi_value: 0-100
+                - rsi_zone: "overbought", "oversold", "neutral"
+                - macd_histogram: Float value
+                - macd_rising: Boolean
+                - regime: MarketRegime enum value
+                - vwap_position: "above", "below", "at"
+                - heiken_trend: "bullish", "bearish", "neutral"
+                - direction: "up" or "down" (our intended trade direction)
+            edge: Expected edge on the trade
+            base_confidence: Starting confidence level
+
+        Returns:
+            Dict with:
+                - adjusted_size: Final position size
+                - final_confidence: TA-adjusted confidence
+                - confidence_adjustments: List of adjustments made
+                - risk_level: Overall risk assessment
+        """
+        if not ta_signals:
+            return {
+                "adjusted_size": base_size,
+                "final_confidence": base_confidence,
+                "confidence_adjustments": [],
+                "risk_level": RiskLevel.MEDIUM,
+            }
+
+        adjustments = []
+        confidence_delta = 0.0
+        trade_direction = ta_signals.get("direction", "up")
+
+        # RSI extreme confirmation
+        rsi_value = ta_signals.get("rsi_value", 50)
+        rsi_zone = ta_signals.get("rsi_zone", "neutral")
+
+        if rsi_zone == "overbought" and trade_direction == "down":
+            confidence_delta += TA_CONFIDENCE_FACTORS["rsi_extreme"]
+            adjustments.append(f"+{TA_CONFIDENCE_FACTORS['rsi_extreme']*100:.0f}%: RSI overbought ({rsi_value:.0f})")
+        elif rsi_zone == "oversold" and trade_direction == "up":
+            confidence_delta += TA_CONFIDENCE_FACTORS["rsi_extreme"]
+            adjustments.append(f"+{TA_CONFIDENCE_FACTORS['rsi_extreme']*100:.0f}%: RSI oversold ({rsi_value:.0f})")
+        elif rsi_zone == "overbought" and trade_direction == "up":
+            confidence_delta -= TA_CONFIDENCE_FACTORS["rsi_extreme"]
+            adjustments.append(f"-{TA_CONFIDENCE_FACTORS['rsi_extreme']*100:.0f}%: RSI overbought, betting up")
+        elif rsi_zone == "oversold" and trade_direction == "down":
+            confidence_delta -= TA_CONFIDENCE_FACTORS["rsi_extreme"]
+            adjustments.append(f"-{TA_CONFIDENCE_FACTORS['rsi_extreme']*100:.0f}%: RSI oversold, betting down")
+
+        # MACD confirmation
+        macd_rising = ta_signals.get("macd_rising")
+        if macd_rising is not None:
+            if macd_rising and trade_direction == "up":
+                confidence_delta += TA_CONFIDENCE_FACTORS["macd_confirm"]
+                adjustments.append(f"+{TA_CONFIDENCE_FACTORS['macd_confirm']*100:.0f}%: MACD rising, bullish")
+            elif not macd_rising and trade_direction == "down":
+                confidence_delta += TA_CONFIDENCE_FACTORS["macd_confirm"]
+                adjustments.append(f"+{TA_CONFIDENCE_FACTORS['macd_confirm']*100:.0f}%: MACD falling, bearish")
+            elif macd_rising and trade_direction == "down":
+                confidence_delta -= TA_CONFIDENCE_FACTORS["macd_confirm"] * 0.5
+                adjustments.append(f"-{TA_CONFIDENCE_FACTORS['macd_confirm']*50:.0f}%: MACD rising, betting down")
+
+        # Regime alignment
+        regime = ta_signals.get("regime")
+        if regime:
+            from src.analysis.regime import MarketRegime
+
+            # For reversion strategies, RANGE is favorable
+            strategy_type = ta_signals.get("strategy_type", "reversion")
+
+            if strategy_type == "reversion":
+                if regime == MarketRegime.RANGE:
+                    confidence_delta += TA_CONFIDENCE_FACTORS["regime_favor"]
+                    adjustments.append(f"+{TA_CONFIDENCE_FACTORS['regime_favor']*100:.0f}%: Range-bound market favors reversion")
+                elif regime == MarketRegime.CHOP:
+                    confidence_delta -= TA_CONFIDENCE_FACTORS["regime_favor"] * 0.5
+                    adjustments.append(f"-{TA_CONFIDENCE_FACTORS['regime_favor']*50:.0f}%: Choppy market, uncertain")
+                elif regime == MarketRegime.TREND_UP and trade_direction == "down":
+                    confidence_delta -= TA_CONFIDENCE_FACTORS["regime_favor"]
+                    adjustments.append(f"-{TA_CONFIDENCE_FACTORS['regime_favor']*100:.0f}%: Uptrend resists down bets")
+                elif regime == MarketRegime.TREND_DOWN and trade_direction == "up":
+                    confidence_delta -= TA_CONFIDENCE_FACTORS["regime_favor"]
+                    adjustments.append(f"-{TA_CONFIDENCE_FACTORS['regime_favor']*100:.0f}%: Downtrend resists up bets")
+            else:
+                # For trend-following strategies
+                if regime == MarketRegime.TREND_UP and trade_direction == "up":
+                    confidence_delta += TA_CONFIDENCE_FACTORS["regime_favor"]
+                    adjustments.append(f"+{TA_CONFIDENCE_FACTORS['regime_favor']*100:.0f}%: Uptrend confirms long")
+                elif regime == MarketRegime.TREND_DOWN and trade_direction == "down":
+                    confidence_delta += TA_CONFIDENCE_FACTORS["regime_favor"]
+                    adjustments.append(f"+{TA_CONFIDENCE_FACTORS['regime_favor']*100:.0f}%: Downtrend confirms short")
+
+        # Heiken Ashi trend confirmation
+        heiken_trend = ta_signals.get("heiken_trend")
+        if heiken_trend:
+            if heiken_trend == "bullish" and trade_direction == "up":
+                confidence_delta += TA_CONFIDENCE_FACTORS["heiken_trend"]
+                adjustments.append(f"+{TA_CONFIDENCE_FACTORS['heiken_trend']*100:.0f}%: Heiken Ashi bullish")
+            elif heiken_trend == "bearish" and trade_direction == "down":
+                confidence_delta += TA_CONFIDENCE_FACTORS["heiken_trend"]
+                adjustments.append(f"+{TA_CONFIDENCE_FACTORS['heiken_trend']*100:.0f}%: Heiken Ashi bearish")
+
+        # Multi-signal alignment bonus
+        positive_signals = sum(1 for adj in adjustments if adj.startswith("+"))
+        if positive_signals >= 3:
+            confidence_delta += TA_CONFIDENCE_FACTORS["multi_signal"]
+            adjustments.append(f"+{TA_CONFIDENCE_FACTORS['multi_signal']*100:.0f}%: Multiple indicators align ({positive_signals})")
+
+        # Calculate final confidence (clamped 0.1 to 0.95)
+        final_confidence = max(0.1, min(0.95, base_confidence + confidence_delta))
+
+        # Determine risk level based on confidence and edge
+        if final_confidence >= 0.8 and edge >= 0.05:
+            risk_level = RiskLevel.LOW
+        elif final_confidence >= 0.6 and edge >= 0.03:
+            risk_level = RiskLevel.MEDIUM
+        elif final_confidence < 0.5 or edge < 0.02:
+            risk_level = RiskLevel.HIGH
+        else:
+            risk_level = RiskLevel.MEDIUM
+
+        # Adjust size based on confidence change
+        confidence_ratio = final_confidence / base_confidence if base_confidence > 0 else 1.0
+        adjusted_size = base_size * confidence_ratio
+
+        # Apply minimum and maximum bounds
+        max_size = self.current_balance * (self.limits.max_position_percent / 100)
+        min_size = 0.50  # $0.50 minimum
+
+        adjusted_size = max(min_size, min(adjusted_size, max_size))
+
+        logger.debug(
+            f"TA-adjusted sizing: base=${base_size:.2f} -> ${adjusted_size:.2f} "
+            f"(confidence: {base_confidence:.2f} -> {final_confidence:.2f}, "
+            f"adjustments: {len(adjustments)})"
+        )
+
+        return {
+            "adjusted_size": round(adjusted_size, 2),
+            "final_confidence": final_confidence,
+            "confidence_adjustments": adjustments,
+            "risk_level": risk_level,
+            "confidence_delta": confidence_delta,
+        }
+
+    def should_reduce_exposure(
+        self,
+        regime: Optional[Any] = None,
+        volatility: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Determine if we should reduce overall exposure based on conditions.
+
+        Args:
+            regime: Current market regime from RegimeDetector
+            volatility: Current volatility reading
+
+        Returns:
+            Dict with recommendation and reasoning
+        """
+        recommendations = []
+        should_reduce = False
+        reduction_factor = 1.0
+
+        # Check volatility
+        avg_vol = self.get_average_volatility()
+        if volatility and volatility > self.limits.max_volatility:
+            should_reduce = True
+            reduction_factor *= 0.5
+            recommendations.append(f"High volatility ({volatility*100:.1f}% > {self.limits.max_volatility*100:.1f}%)")
+
+        # Check regime
+        if regime:
+            from src.analysis.regime import MarketRegime
+
+            if regime == MarketRegime.CHOP:
+                should_reduce = True
+                reduction_factor *= 0.7
+                recommendations.append("Choppy market regime detected")
+
+        # Check current exposure
+        exposure_pct = (self._total_exposure / self.current_balance * 100) if self.current_balance > 0 else 0
+        if exposure_pct > self.limits.max_total_exposure_percent * 0.8:
+            should_reduce = True
+            reduction_factor *= 0.8
+            recommendations.append(f"High exposure ({exposure_pct:.1f}%)")
+
+        # Check daily P&L
+        today = self._get_date_key()
+        stats = self._daily_stats.get(today)
+        if stats and stats.starting_balance > 0:
+            daily_pnl_pct = stats.pnl / stats.starting_balance
+            if daily_pnl_pct < -self.limits.daily_drawdown_limit * 0.5:
+                should_reduce = True
+                reduction_factor *= 0.5
+                recommendations.append(f"Approaching daily loss limit ({daily_pnl_pct*100:.1f}%)")
+
+        return {
+            "should_reduce": should_reduce,
+            "reduction_factor": reduction_factor,
+            "recommendations": recommendations,
+        }

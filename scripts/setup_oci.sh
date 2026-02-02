@@ -9,9 +9,9 @@
 #   ./setup_oci.sh
 #
 # After running this script, you still need to:
-# 1. Configure your API keys in ~/.polymarket_env
+# 1. Configure your API keys (Kalshi: ~/.kalshi_env, Polymarket: ~/.polymarket_env)
 # 2. Edit config/config.yaml as needed
-# 3. Start the bot with: sudo systemctl start polybot
+# 3. Start the bot with: sudo systemctl start tradingbot
 
 set -e
 
@@ -26,7 +26,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-BOT_DIR="$HOME/polymarket-bot"
+BOT_DIR="$HOME/trading-bot"
 PYTHON_VERSION="3.10"
 
 echo -e "${GREEN}[1/8] Updating system packages...${NC}"
@@ -64,10 +64,31 @@ else
     pip install -r requirements.txt
 fi
 
-echo -e "${GREEN}[7/8] Creating environment file template...${NC}"
+echo -e "${GREEN}[7/8] Creating environment file templates...${NC}"
+
+# Create Kalshi env file (US users)
+if [ ! -f "$HOME/.kalshi_env" ]; then
+    cat > "$HOME/.kalshi_env" << 'EOF'
+# Kalshi API Credentials (US Legal - CFTC Regulated)
+# Fill in your actual values and keep this file secure!
+
+export KALSHI_API_KEY_ID="your_api_key_id_here"
+export KALSHI_PRIVATE_KEY_PATH="$HOME/.kalshi/private_key.pem"
+
+# Optional: Exchange API keys for price feeds
+# export BINANCE_API_KEY=""
+EOF
+    chmod 600 "$HOME/.kalshi_env"
+    mkdir -p "$HOME/.kalshi"
+    echo -e "${YELLOW}Created ~/.kalshi_env - EDIT THIS FILE WITH YOUR CREDENTIALS${NC}"
+else
+    echo -e "${YELLOW}~/.kalshi_env already exists${NC}"
+fi
+
+# Create Polymarket env file (non-US users)
 if [ ! -f "$HOME/.polymarket_env" ]; then
     cat > "$HOME/.polymarket_env" << 'EOF'
-# Polymarket API Credentials
+# Polymarket API Credentials (Non-US Only)
 # Fill in your actual values and keep this file secure!
 
 export POLYMARKET_API_KEY="your_api_key_here"
@@ -75,22 +96,17 @@ export POLYMARKET_API_SECRET="your_api_secret_here"
 export POLYMARKET_API_PASSPHRASE="your_passphrase_here"
 export POLYMARKET_PRIVATE_KEY="your_wallet_private_key"
 export POLYMARKET_FUNDER="your_wallet_address"
-
-# Optional: Exchange API keys for price feeds
-# export BINANCE_API_KEY=""
-# export BINANCE_API_SECRET=""
-# export COINBASE_API_KEY=""
-# export COINBASE_API_SECRET=""
 EOF
     chmod 600 "$HOME/.polymarket_env"
-    echo -e "${YELLOW}Created ~/.polymarket_env - EDIT THIS FILE WITH YOUR CREDENTIALS${NC}"
+    echo -e "${YELLOW}Created ~/.polymarket_env (for non-US users)${NC}"
 else
     echo -e "${YELLOW}~/.polymarket_env already exists${NC}"
 fi
 
-# Add to bashrc if not already there
-if ! grep -q "polymarket_env" "$HOME/.bashrc"; then
-    echo 'source ~/.polymarket_env' >> "$HOME/.bashrc"
+# Add Kalshi env to bashrc (default for US users)
+if ! grep -q "kalshi_env" "$HOME/.bashrc"; then
+    echo '# Load Kalshi credentials (US users)' >> "$HOME/.bashrc"
+    echo 'source ~/.kalshi_env' >> "$HOME/.bashrc"
 fi
 
 echo -e "${GREEN}[8/8] Creating log directories...${NC}"
@@ -107,7 +123,12 @@ echo ""
 echo "1. Copy your bot files to: $BOT_DIR"
 echo "   (or clone from your repository)"
 echo ""
-echo "2. Edit your API credentials:"
+echo "2. For US users (Kalshi):"
+echo "   ${YELLOW}nano ~/.kalshi_env${NC}"
+echo "   - Copy your Kalshi private key to ~/.kalshi/private_key.pem"
+echo "   - chmod 600 ~/.kalshi/private_key.pem"
+echo ""
+echo "   For non-US users (Polymarket):"
 echo "   ${YELLOW}nano ~/.polymarket_env${NC}"
 echo ""
 echo "3. Install Python dependencies (if not already):"
@@ -119,17 +140,17 @@ echo "   ${YELLOW}cp config/config.example.yaml config/config.yaml${NC}"
 echo "   ${YELLOW}nano config/config.yaml${NC}"
 echo ""
 echo "5. Test in simulation mode:"
-echo "   ${YELLOW}python -m src.main --simulation${NC}"
+echo "   ${YELLOW}python main.py --exchange kalshi --simulation${NC}"
 echo ""
 echo "6. Set up systemd service for 24/7 operation:"
-echo "   ${YELLOW}sudo cp scripts/polybot.service /etc/systemd/system/${NC}"
+echo "   ${YELLOW}sudo cp scripts/tradingbot.service /etc/systemd/system/${NC}"
 echo "   ${YELLOW}sudo systemctl daemon-reload${NC}"
-echo "   ${YELLOW}sudo systemctl enable polybot${NC}"
-echo "   ${YELLOW}sudo systemctl start polybot${NC}"
+echo "   ${YELLOW}sudo systemctl enable tradingbot${NC}"
+echo "   ${YELLOW}sudo systemctl start tradingbot${NC}"
 echo ""
 echo "7. Monitor the bot:"
-echo "   ${YELLOW}sudo journalctl -u polybot -f${NC}"
-echo "   ${YELLOW}tail -f logs/polybot.log${NC}"
+echo "   ${YELLOW}sudo journalctl -u tradingbot -f${NC}"
+echo "   ${YELLOW}tail -f logs/trading.log${NC}"
 echo ""
 echo "=============================================="
 echo -e "${RED}IMPORTANT: Review all settings before enabling live trading!${NC}"

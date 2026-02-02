@@ -137,7 +137,7 @@ print(f"Found {len(markets)} BTC markets")
 
 3. Configure the instance:
    ```
-   Name: polymarket-bot
+   Name: kalshi-trading-bot
    Compartment: (your root compartment)
    Availability Domain: Choose any available
 
@@ -185,8 +185,8 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3.10 python3.10-venv python3-pip git tmux htop
 
 # Create project directory
-mkdir -p ~/polymarket-bot
-cd ~/polymarket-bot
+mkdir -p ~/trading-bot
+cd ~/trading-bot
 
 # Clone the repository (or upload files)
 git clone https://github.com/YOUR_USERNAME/PolyPrinting2026.git .
@@ -203,8 +203,27 @@ pip install -r requirements.txt
 
 ### Step 6: Configure Environment Variables
 
+**For Kalshi (US users):**
 ```bash
-# Create environment file (NEVER commit this!)
+# Create Kalshi environment file (NEVER commit this!)
+nano ~/.kalshi_env
+
+# Add these variables:
+export KALSHI_API_KEY_ID="your_api_key_id"
+export KALSHI_PRIVATE_KEY_PATH="$HOME/.kalshi/private_key.pem"
+
+# Optional: For enhanced price feeds
+export BINANCE_API_KEY="optional_binance_key"
+
+# Load environment
+chmod 600 ~/.kalshi_env
+echo "source ~/.kalshi_env" >> ~/.bashrc
+source ~/.bashrc
+```
+
+**For Polymarket (non-US users):**
+```bash
+# Create Polymarket environment file
 nano ~/.polymarket_env
 
 # Add these variables:
@@ -213,10 +232,6 @@ export POLYMARKET_API_SECRET="your_api_secret_here"
 export POLYMARKET_API_PASSPHRASE="your_passphrase_here"
 export POLYMARKET_PRIVATE_KEY="your_wallet_private_key"
 export POLYMARKET_FUNDER="your_wallet_address"
-
-# Optional: For enhanced price feeds
-export BINANCE_API_KEY="optional_binance_key"
-export COINBASE_API_KEY="optional_coinbase_key"
 
 # Load environment
 chmod 600 ~/.polymarket_env
@@ -314,45 +329,50 @@ risk:
 ### Option 1: Direct Execution (Development)
 
 ```bash
-cd ~/polymarket-bot
+cd ~/trading-bot
 source venv/bin/activate
-python -m src.main
+
+# For Kalshi (US)
+python main.py --exchange kalshi --simulation
+
+# For Polymarket (non-US)
+python main.py --exchange polymarket --simulation
 ```
 
 ### Option 2: Using tmux (Persistent Session)
 
 ```bash
 # Start tmux session
-tmux new -s polybot
+tmux new -s tradingbot
 
 # Run bot
-cd ~/polymarket-bot
+cd ~/trading-bot
 source venv/bin/activate
-python -m src.main
+python main.py --exchange kalshi --simulation
 
 # Detach: Ctrl+B, then D
-# Reattach: tmux attach -t polybot
+# Reattach: tmux attach -t tradingbot
 ```
 
 ### Option 3: systemd Service (Production - Recommended)
 
 ```bash
 # Copy service file
-sudo cp scripts/polybot.service /etc/systemd/system/
+sudo cp scripts/tradingbot.service /etc/systemd/system/
 
 # Edit paths if needed
-sudo nano /etc/systemd/system/polybot.service
+sudo nano /etc/systemd/system/tradingbot.service
 
 # Enable and start
 sudo systemctl daemon-reload
-sudo systemctl enable polybot
-sudo systemctl start polybot
+sudo systemctl enable tradingbot
+sudo systemctl start tradingbot
 
 # Check status
-sudo systemctl status polybot
+sudo systemctl status tradingbot
 
 # View logs
-sudo journalctl -u polybot -f
+sudo journalctl -u tradingbot -f
 ```
 
 ---
@@ -366,7 +386,7 @@ sudo journalctl -u polybot -f
 tail -f logs/trades.csv
 
 # Application logs
-tail -f logs/polybot.log
+tail -f logs/trading.log
 
 # Daily P&L summary
 cat logs/daily_pnl.csv
@@ -385,19 +405,19 @@ curl http://localhost:9090/metrics
 ```
 
 Key metrics:
-- `polybot_balance_usdc` - Current wallet balance
-- `polybot_trades_total` - Total trades executed
-- `polybot_pnl_total` - Cumulative P&L
-- `polybot_active_positions` - Open positions count
+- `trading_balance_usd` - Current account balance
+- `trading_trades_total` - Total trades executed
+- `trading_pnl_total` - Cumulative P&L
+- `trading_open_positions` - Open positions count
 
 ### Health Checks
 
 ```bash
 # Check if bot is running
-pgrep -f "python -m src.main"
+pgrep -f "main.py"
 
 # Check systemd status
-sudo systemctl status polybot
+sudo systemctl status tradingbot
 
 # Monitor resource usage
 htop
@@ -430,35 +450,41 @@ python -m src.backtest.backtester --strategy arbitrage --days 30
 
 ```
 PolyPrinting2026/
+├── main.py                  # Entry point (supports both exchanges)
 ├── src/
-│   ├── main.py              # Entry point
 │   ├── api/
-│   │   ├── polymarket_client.py  # Polymarket CLOB wrapper
+│   │   ├── kalshi_client.py      # Kalshi API (US legal)
+│   │   ├── polymarket_client.py  # Polymarket CLOB (non-US)
 │   │   ├── price_feeds.py        # CCXT multi-exchange prices
+│   │   ├── websocket_feeds.py    # Real-time WebSocket streams
 │   │   └── gamma_api.py          # Leaderboard/copy trading
 │   ├── strategies/
 │   │   ├── base_strategy.py      # Strategy interface
-│   │   ├── arbitrage.py          # YES/NO arb scanner
-│   │   ├── market_maker.py       # Maker rebate strategy
-│   │   ├── spike_reversion.py    # Volatility detector
-│   │   └── copy_trader.py        # Top trader mirroring
+│   │   ├── kalshi_crypto_ta.py   # Kalshi TA strategy
+│   │   ├── kalshi_spike_reversion.py  # Kalshi spike reversion
+│   │   ├── kalshi_arbitrage.py   # Kalshi YES/NO arb
+│   │   ├── kalshi_market_maker.py    # Kalshi market making
+│   │   └── [polymarket strategies]   # Non-US alternatives
 │   ├── core/
-│   │   ├── trading_loop.py       # Main event loop
+│   │   ├── kalshi_trading_loop.py    # Kalshi main loop
+│   │   ├── trading_loop.py       # Polymarket main loop
 │   │   ├── risk_manager.py       # Position/drawdown limits
-│   │   ├── position_manager.py   # Track open positions
 │   │   └── order_manager.py      # Order lifecycle
+│   ├── analysis/
+│   │   ├── indicators.py         # RSI, MACD, VWAP, etc.
+│   │   ├── scoring.py            # Signal scoring
+│   │   └── regime.py             # Market regime detection
 │   ├── utils/
 │   │   ├── logger.py             # Structured logging
-│   │   ├── metrics.py            # Prometheus exporter
-│   │   └── helpers.py            # Utility functions
+│   │   ├── alerts.py             # Discord/Telegram/Email alerts
+│   │   └── metrics.py            # Prometheus exporter
 │   └── backtest/
-│       ├── backtester.py         # Simulation engine
-│       └── data_loader.py        # Historical data
+│       └── backtester.py         # Simulation engine
 ├── config/
 │   └── config.yaml           # Bot configuration
 ├── scripts/
 │   ├── setup_oci.sh          # OCI automation
-│   └── polybot.service       # systemd unit
+│   └── tradingbot.service    # systemd unit
 ├── logs/                     # Trade logs, P&L
 └── data/                     # Market data cache
 ```
@@ -469,14 +495,18 @@ PolyPrinting2026/
 
 ### Common Issues
 
-**1. API Authentication Failed**
+**1. Kalshi API Authentication Failed**
 ```bash
 # Verify environment variables are set
-echo $POLYMARKET_API_KEY
+echo $KALSHI_API_KEY_ID
+echo $KALSHI_PRIVATE_KEY_PATH
 # Should not be empty
 
 # Re-source environment
-source ~/.polymarket_env
+source ~/.kalshi_env
+
+# Test connection
+python -c "from src.api import KalshiClient; c = KalshiClient(use_demo=True); print(c.health_check())"
 ```
 
 **2. Rate Limiting**
@@ -490,36 +520,36 @@ Error: 429 Too Many Requests
 ```
 Error: Insufficient funds for order
 ```
-- Check wallet balance on Polymarket
+- Check balance on Kalshi.com
 - Reduce `max_position_size` in config
-- Ensure USDC is deposited (not MATIC)
+- Ensure funds are deposited
 
 **4. Connection Issues**
 ```bash
-# Test connectivity
-curl https://clob.polymarket.com/health
+# Test Kalshi connectivity
+curl https://trading-api.kalshi.com/trade-api/v2/exchange/status
 
 # Check DNS
-nslookup clob.polymarket.com
+nslookup trading-api.kalshi.com
 ```
 
 **5. Bot Stops Unexpectedly**
 ```bash
 # Check systemd logs
-sudo journalctl -u polybot -n 100
+sudo journalctl -u tradingbot -n 100
 
 # Check application logs
-tail -100 logs/polybot.log
+tail -100 logs/trading.log
 ```
 
 ### Recovery Procedures
 
 ```bash
 # Restart bot
-sudo systemctl restart polybot
+sudo systemctl restart tradingbot
 
 # Cancel all open orders (emergency)
-python -m src.utils.cancel_all_orders
+python -c "from src.api import KalshiClient; c = KalshiClient(); [c.cancel_order(o.order_id) for o in c.get_open_orders()]"
 
 # Export trade history
 python -m src.utils.export_trades --output trades_backup.csv
@@ -597,11 +627,18 @@ MIT License - See LICENSE file for details.
 
 ## Resources
 
+**Kalshi (US Legal):**
+- [Kalshi API Documentation](https://docs.kalshi.com/)
+- [Kalshi Help Center](https://help.kalshi.com/kalshi-api)
+- [Kalshi Discord](https://discord.gg/kalshi) - #dev channel
+
+**Polymarket (Non-US):**
 - [py-clob-client GitHub](https://github.com/Polymarket/py-clob-client)
 - [Polymarket API Documentation](https://docs.polymarket.com/)
+
+**General:**
 - [CCXT Exchange Library](https://github.com/ccxt/ccxt)
-- [Polymarket Community Discord](https://discord.gg/polymarket)
 
 ---
 
-*Built with insights from the Polymarket trading community. Not financial advice.*
+*Built for prediction market trading. Not financial advice.*

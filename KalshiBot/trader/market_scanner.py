@@ -83,9 +83,16 @@ class MarketScanner:
                 batch = result.get("markets", [])
                 cursor = result.get("cursor")
                 
+                if not batch:
+                    break # Stop if no markets returned
+                
                 for m in batch:
                     markets.append(self._parse_market_response(m))
                 
+                if len(markets) > 15000:
+                    logger.warning("Global Scan hit safety limit (15000)")
+                    break
+
                 page_count += 1
                 if page_count % 5 == 0:
                      logger.info(f"Scanning... Fetched {len(markets)} markets so far")

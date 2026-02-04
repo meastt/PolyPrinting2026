@@ -262,16 +262,26 @@ def identify_sniper_targets(markets: list[dict], btc_price: float):
         candidates.sort(key=lambda x: (x["distance"], -x["volume"]))
         
         best = candidates[0]
-        
-        # Write to target file
+
+        # Determine side based on current price vs strike
+        # If BTC > strike, YES is more likely (BUY_YES on upward momentum)
+        # If BTC < strike, NO is more likely (SELL_YES on downward momentum)
+        side = "BUY_YES" if btc_price > best["strike"] else "SELL_YES"
+        target_price = best["yes_ask"] if side == "BUY_YES" else best["no_ask"]
+
+        # Write to target file with all required fields for market_maker.py
         target_data = {
             "updated_at": int(time.time()),
+            "id": f"SNIPE_{best['ticker']}_{int(time.time())}",
             "ticker": best["ticker"],
             "strike": best["strike"],
-            "side": "BUY_YES" if btc_price > best["strike"] else "BUY_NO", # Default bias? No, handled by velocity.
-            # Actually we just need the ticker.
+            "side": side,
+            "size": 2,  # Conservative size for sniper trades
+            "target_price": target_price,
             "market_price": best["yes_ask"],
-            "expiry": best["expiry"]
+            "trigger_momentum": 30.0,  # $/sec threshold to trigger
+            "expiry": best["expiry"],
+            "status": "PENDING"  # Critical: market_maker checks for this
         }
         
         with open(SNIPER_TARGET_PATH, 'w') as f:

@@ -197,8 +197,22 @@ def update_signals(new_signal: dict):
 
     with open(SIGNALS_PATH, 'w') as f:
         json.dump({"updated_at": int(time.time()), "signals": signals}, f, indent=2)
-    
+
     logger.info(f"Signal generated: {new_signal['side']} {new_signal['ticker']} (Size: {new_signal['size']})")
+
+def touch_signals_file():
+    """Update timestamp on signals file to show liveness."""
+    signals = []
+    if SIGNALS_PATH.exists():
+        try:
+            with open(SIGNALS_PATH, 'r') as f:
+                data = json.load(f)
+                signals = data.get("signals", [])
+        except Exception:
+            pass
+            
+    with open(SIGNALS_PATH, 'w') as f:
+        json.dump({"updated_at": int(time.time()), "signals": signals}, f, indent=2)
 
 def identify_sniper_targets(markets: list[dict], btc_price: float):
     """
@@ -414,6 +428,11 @@ def main():
                 
                 time.sleep(2) # Rate limit Groq slightly
                 
+                time.sleep(2) # Rate limit Groq slightly
+            
+            # Heartbeat (Tell Agent we are alive even if no signals)
+            touch_signals_file()
+            
             logger.info("Scan cycle complete. Sleeping 5 minutes...")
             time.sleep(300) 
             

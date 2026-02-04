@@ -204,12 +204,22 @@ def cmd_help(message):
     
     help_text = """🤖 *Kalshi Trading Bot Commands*
 
-/status - Current P&L, spread, uptime
-/neutral - Reset to defaults (5c spread, 10 size)
-/defensive - Emergency: wide spreads, min size
+*Status & Info:*
+/status - Current mode, spread, position settings
+/portfolio - View positions and realized P&L
+/logs - Debug info: sniper target, services status
+
+*Trading Modes:*
+/neutral - Default mode (5c spread, 10 size)
+/defensive - Wide spreads, min size
 /aggressive - Tight spreads, max size
-/analyze - Run sentiment analysis on news
-/kill - EMERGENCY STOP (cancels all, shuts down)
+/sniper [on|off] - Latency arb mode (momentum triggers)
+
+*Analysis:*
+/analyze - Run AI sentiment analysis on news
+
+*Emergency:*
+/kill - STOP all trading and shutdown
 """
     bot.reply_to(message, help_text, parse_mode='Markdown')
 
@@ -400,10 +410,10 @@ def cmd_sniper(message):
     if len(args) < 2:
         bot.reply_to(message, "Usage: /sniper [on|off]")
         return
-    
+
     action = args[1].lower()
     config = read_strategy()
-    
+
     if action == "on":
         config["mode"] = "sniper"
         bot.reply_to(message, "🎯 *SNIPER MODE ACTIVATED* 🎯\n\nHunting for 15-min momentum targets.\nVelocity Threshold: >$30/sec\n\nStay alert.", parse_mode='Markdown')
@@ -413,9 +423,85 @@ def cmd_sniper(message):
     else:
         bot.reply_to(message, "Usage: /sniper [on|off]")
         return
-        
+
     write_strategy(config)
     logger.info(f"Command /sniper {action} executed")
+
+
+@bot.message_handler(commands=['logs'])
+def cmd_logs(message):
+    if not is_authorized(message):
+        return
+
+    lines = ["🔍 *Debug Status*\n"]
+    now = int(time.time())
+
+    # Check sniper_target.json
+    sniper_path = Path("/app/config/sniper_target.json")
+    if sniper_path.exists():
+        try:
+            with open(sniper_path, 'r') as f:
+                target = json.load(f)
+            age = now - target.get("updated_at", 0)
+            lines.append("*Sniper Target:* Found")
+            lines.append(f"  Ticker: `{target.get('ticker', 'N/A')}`")
+            lines.append(f"  Side: `{target.get('side', 'N/A')}`")
+            lines.append(f"  Status: `{target.get('status', 'MISSING')}`")
+            lines.append(f"  Size: `{target.get('size', 'MISSING')}`")
+            lines.append(f"  Target Price: `{target.get('target_price', 'MISSING')}`")
+            lines.append(f"  Age: {age}s ago")
+            if target.get('status') != 'PENDING':
+                lines.append("  ⚠️ Status not PENDING - won't trigger!")
+            if 'size' not in target or 'target_price' not in target:
+                lines.append("  ⚠️ Missing required fields!")
+        except Exception as e:
+            lines.append(f"*Sniper Target:* Error reading ({e})")
+    else:
+        lines.append("*Sniper Target:* Not found")
+        lines.append("  ⚠️ Strategist may not be running")
+
+    lines.append("")
+
+    # Check trading_signals.json
+    signals_path = Path("/app/config/trading_signals.json")
+    if signals_path.exists():
+        try:
+            with open(signals_path, 'r') as f:
+                data = json.load(f)
+            signals = data.get("signals", [])
+            pending = [s for s in signals if s.get("status") == "PENDING"]
+            age = now - data.get("updated_at", 0)
+            lines.append(f"*Trading Signals:* {len(signals)} total, {len(pending)} pending")
+            lines.append(f"  Last update: {age}s ago")
+            if pending:
+                latest = pending[-1]
+                lines.append(f"  Latest: `{latest.get('ticker')}` {latest.get('side')}")
+        except Exception as e:
+            lines.append(f"*Trading Signals:* Error ({e})")
+    else:
+        lines.append("*Trading Signals:* Not found")
+
+    lines.append("")
+
+    # Check strategy.json age
+    config = read_strategy()
+    strat_age = now - config.get("updated_at", 0)
+    lines.append(f"*Strategy:* mode=`{config.get('mode')}`, updated {strat_age}s ago")
+
+    # Service health hints
+    lines.append("")
+    lines.append("*Service Hints:*")
+    if not sniper_path.exists():
+        lines.append("  - Strategist: likely DOWN")
+    elif age > 600:  # 10 min
+        lines.append("  - Strategist: possibly stale (>10min)")
+    else:
+        lines.append("  - Strategist: likely OK")
+
+    lines.append("  - Agent: OK (you're reading this)")
+
+    bot.reply_to(message, "\n".join(lines), parse_mode='Markdown')
+
 
 def main():
     logger.info("🧠 Agent Brain starting...")

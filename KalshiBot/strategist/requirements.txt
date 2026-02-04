@@ -1,0 +1,8 @@
+# AI Strategist Dependencies
+groq>=0.4.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+# We also need dependencies for the scanner modules we import
+scipy>=1.10.0
+websocket-client>=1.7.0
+cryptography>=41.0.0

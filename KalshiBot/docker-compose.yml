@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # SLOW BRAIN: The General
+  # Handles Telegram commands, Groq reasoning, news sentiment
+  # =============================================================================
+  agent:
+    build: ./agent
+    container_name: kalshi-agent
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config  # Shared config volume
+      - ./logs:/app/logs
+    depends_on:
+      - heartbeat
+    networks:
+      - kalshi-net
+
+  # =============================================================================
+  # FAST BRAIN: The Soldier
+  # 10ms execution loop, Coinbase prices, Kalshi orders
+  # =============================================================================
+  trader:
+    build: ./trader
+    container_name: kalshi-trader
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config  # Reads strategy.json
+      - ./logs:/app/logs
+      - ${KALSHI_PRIVATE_KEY_PATH:-./keys/kalshi_private_key.pem}:/app/keys/private_key.pem:ro
+    depends_on:
+      - agent
+    networks:
+      - kalshi-net
+
+  # =============================================================================
+  # STRATEGIST: The Brain
+  # AI reasoning, market scanning, signal generation
+  # =============================================================================
+  strategist:
+    build:
+      context: .
+      dockerfile: strategist/Dockerfile
+    container_name: kalshi-strategist
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./keys:/app/keys:ro
+      - ./trader:/app/trader  # Mount trader code for shared modules
+    depends_on:
+      - trader
+    networks:
+      - kalshi-net
+
+  # =============================================================================
+  # HEARTBEAT: Oracle Anti-Reclamation
+  # Burns minimal CPU to prevent free-tier server reclamation
+  # =============================================================================
+  heartbeat:
+    build: ./heartbeat
+    container_name: kalshi-heartbeat
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - kalshi-net
+
+networks:
+  kalshi-net:
+    driver: bridge

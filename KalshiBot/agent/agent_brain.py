@@ -391,6 +391,32 @@ def cmd_kill(message):
 # Main Loop
 # =============================================================================
 
+@bot.message_handler(commands=['sniper'])
+def cmd_sniper(message):
+    if not is_authorized(message):
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        bot.reply_to(message, "Usage: /sniper [on|off]")
+        return
+    
+    action = args[1].lower()
+    config = read_strategy()
+    
+    if action == "on":
+        config["mode"] = "sniper"
+        bot.reply_to(message, "🎯 *SNIPER MODE ACTIVATED* 🎯\n\nHunting for 15-min momentum targets.\nVelocity Threshold: >$30/sec\n\nStay alert.", parse_mode='Markdown')
+    elif action == "off":
+        config["mode"] = "neutral"
+        bot.reply_to(message, "🛡️ Sniper Mode DEACTIVATED. Returning to Neutral.", parse_mode='Markdown')
+    else:
+        bot.reply_to(message, "Usage: /sniper [on|off]")
+        return
+        
+    write_strategy(config)
+    logger.info(f"Command /sniper {action} executed")
+
 def main():
     logger.info("🧠 Agent Brain starting...")
     logger.info(f"Telegram Chat ID: {TELEGRAM_CHAT_ID}")

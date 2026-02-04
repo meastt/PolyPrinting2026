@@ -51,6 +51,7 @@ KALSHI_API_KEY_ID = os.getenv("KALSHI_API_KEY_ID")
 KALSHI_PRIVATE_KEY_PATH = os.getenv("KALSHI_PRIVATE_KEY_PATH", "/app/keys/private_key.pem")
 
 SIGNALS_PATH = Path("/app/config/trading_signals.json")
+SNIPER_TARGET_PATH = Path("/app/config/sniper_target.json")
 LOG_PATH = Path("/app/logs/strategist.log")
 
 # Guardrails
@@ -199,6 +200,88 @@ def update_signals(new_signal: dict):
     
     logger.info(f"Signal generated: {new_signal['side']} {new_signal['ticker']} (Size: {new_signal['size']})")
 
+def identify_sniper_targets(markets: list[dict], btc_price: float):
+    """
+    Identify high-liquidity BTC markets expiring soon for Latency Sniping.
+    Writes best candidate to sniper_target.json.
+    """
+    try:
+        # Filter for KXBTC and valid strikes
+        candidates = []
+        now = datetime.now(timezone.utc)
+        
+        for m in markets:
+            if "KXBTC" not in m.get("ticker", ""):
+                continue
+                
+            # Must be active
+            if m.get("status", "active") != "active":
+                continue
+                
+            # Parse expiry
+            expiry_str = m.get("expiration_time")
+            if not expiry_str:
+                continue
+            
+            expiry = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+            minutes_to_expiry = (expiry - now).total_seconds() / 60
+            
+            # Target 15-min markets (expiry within 5-60 mins)
+            # Avoid < 5 mins (too risky)
+            if 5 <= minutes_to_expiry <= 60:
+                # Check liquidity
+                vol = m.get("volume", 0)
+                if vol < 100: # Need liquidity
+                    continue
+                    
+                # Calculate distance to spot (ATM preference)
+                strike = m.get("strike")
+                if not strike:
+                    continue
+                
+                distance = abs(strike - btc_price)
+                
+                candidates.append({
+                    "ticker": m["ticker"],
+                    "strike": strike,
+                    "volume": vol,
+                    "expiry": expiry_str,
+                    "distance": distance,
+                    "yes_ask": m.get("yes_ask", 1.0),
+                    "no_ask": m.get("no_ask", 1.0)
+                })
+        
+        if not candidates:
+            # Clear target if none found
+            if SNIPER_TARGET_PATH.exists():
+                os.remove(SNIPER_TARGET_PATH)
+            return
+
+        # Sort by distance (closest to ATM) then Volume
+        # Actually ATM is best for gamma.
+        candidates.sort(key=lambda x: (x["distance"], -x["volume"]))
+        
+        best = candidates[0]
+        
+        # Write to target file
+        target_data = {
+            "updated_at": int(time.time()),
+            "ticker": best["ticker"],
+            "strike": best["strike"],
+            "side": "BUY_YES" if btc_price > best["strike"] else "BUY_NO", # Default bias? No, handled by velocity.
+            # Actually we just need the ticker.
+            "market_price": best["yes_ask"],
+            "expiry": best["expiry"]
+        }
+        
+        with open(SNIPER_TARGET_PATH, 'w') as f:
+            json.dump(target_data, f)
+            
+        logger.info(f"🎯 Sniper Target Updated: {best['ticker']} (Strike: {best['strike']}, Vol: {best['volume']})")
+
+    except Exception as e:
+        logger.error(f"Sniper target id failed: {e}")
+
 # =============================================================================
 # Main Loop
 # =============================================================================
@@ -289,6 +372,10 @@ def main():
             btc_price = get_current_btc_price()
             news = fetch_news_context()
             logger.info(f"BTC: ${btc_price:,.2f} | News items: {len(news)}")
+            
+            # 1.5 Identify Sniper Targets (New)
+            identify_sniper_targets(all_markets, btc_price)
+            
             
             # 2. Find Opportunities (Raw mathematical edge)
             opportunities = scanner.find_opportunities(btc_price=btc_price, min_edge=MIN_EDGE_CENTS/100)

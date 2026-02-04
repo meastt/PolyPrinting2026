@@ -32,7 +32,7 @@ services:
     volumes:
       - ./config:/app/config  # Reads strategy.json
       - ./logs:/app/logs
-      - ${KALSHI_PRIVATE_KEY_PATH:-./keys/kalshi_private_key.pem}:/app/keys/private_key.pem:ro
+      - ./keys/private_key.pem:/app/keys/private_key.pem:ro
     depends_on:
       - agent
     networks:
@@ -43,9 +43,7 @@ services:
   # AI reasoning, market scanning, signal generation
   # =============================================================================
   strategist:
-    build:
-      context: .
-      dockerfile: strategist/Dockerfile
+    build: ./strategist
     container_name: kalshi-strategist
     restart: unless-stopped
     env_file:

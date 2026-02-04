@@ -41,20 +41,24 @@ KALSHI_USE_DEMO = os.getenv("KALSHI_USE_DEMO", "true").lower() == "true"
 
 KALSHI_BASE_URL = "https://demo-api.elections.kalshi.com" if KALSHI_USE_DEMO else "https://api.elections.kalshi.com"
 
-CONFIG_PATH = Path("/app/config/strategy.json")
-SIGNALS_PATH = Path("/app/config/trading_signals.json")
-LOG_PATH = Path("/app/logs/trader.log")
+CONFIG_PATH = "/app/config/strategy.json"
+SIGNALS_PATH = "/app/config/trading_signals.json"
+SNIPER_TARGET_PATH = "/app/config/sniper_target.json"
+STATE_PATH = "/app/config/portfolio_state.json"
+LOG_PATH = "/app/logs/trader.log"
 
 # Import Position Manager
 from position_manager import PositionManager
-portfolio = PositionManager("/app/config/portfolio_state.json")
+folio = PositionManager(STATE_PATH)
+
+# Guardrails
+MAX_DAILY_LOSS_PCT = 0.10
+TOXIC_FLOW_THRESHOLD = 50.0  # $/sec change to trigger halt (Magnitude)
+SNIPER_TRIGGER_THRESHOLD = 30.0 # $/sec change to trigger snipe (Magnitude)
+PRICE_HISTORY_SECONDS = 5     # Lookback window for velocity calc
 
 # Coinbase WebSocket
 COINBASE_WS_URL = "wss://ws-feed.exchange.coinbase.com"
-
-# Toxic Flow Guard settings
-TOXIC_FLOW_THRESHOLD = 50.0  # $50/second price velocity = panic
-PRICE_HISTORY_SECONDS = 5     # Lookback window for velocity calc
 
 # =============================================================================
 # Logging Setup
@@ -66,7 +70,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(LOG_PATH) if LOG_PATH.parent.exists() else logging.StreamHandler()
+        logging.FileHandler(LOG_PATH) if Path(LOG_PATH).parent.exists() else logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -93,6 +97,8 @@ current_strategy = {
 # Trading state
 is_trading_halted = False
 open_orders = []
+last_snipe_time = 0
+
 
 # =============================================================================
 # Strategy Config Reader (Hot Reload)
@@ -117,7 +123,7 @@ def reload_strategy():
                 logger.warning("🛑 HALT MODE - Canceling all orders")
                 cancel_all_orders()
                 
-    except (FileNotFoundError, json.JSONDecodeError) as e:
+    except (FileNotFoundError, json.JSONEDecoderError) as e:
         logger.warning(f"Could not reload strategy: {e}")
 
 # =============================================================================
@@ -208,6 +214,33 @@ def calculate_price_velocity() -> float:
     velocity = price_change / time_delta
     
     return velocity
+
+
+def calculate_momentum() -> float:
+    """
+    Calculate BTC price momentum (Velocity with Direction).
+    Returns price change per second (Signed).
+    Positive = Up, Negative = Down.
+    """
+    if len(price_history) < 2:
+        return 0.0
+    
+    now = time.time()
+    recent = [(ts, p) for ts, p in price_history if now - ts <= PRICE_HISTORY_SECONDS]
+    
+    if len(recent) < 2:
+        return 0.0
+    
+    oldest_ts, oldest_price = recent[0]
+    newest_ts, newest_price = recent[-1]
+    
+    time_delta = newest_ts - oldest_ts
+    if time_delta == 0:
+        return 0.0
+    
+    velocity = (newest_price - oldest_price) / time_delta
+    return velocity
+
 
 
 def check_toxic_flow() -> bool:
@@ -374,7 +407,7 @@ def execute_order(signal: dict) -> bool:
         
         if "order_id" in res:
             logger.info(f"Order placed: {res['order_id']}")
-            portfolio.record_trade(ticker, kalshi_side, price, count, action.upper())
+            folio.record_trade(ticker, kalshi_side, price, count, action.upper())
             return True
         else:
             logger.error(f"Order failed: {res}")
@@ -386,7 +419,7 @@ def execute_order(signal: dict) -> bool:
 
 def process_ai_signals():
     """Check for new signals from Strategist."""
-    if not SIGNALS_PATH.exists():
+    if not Path(SIGNALS_PATH).exists():
         return
 
     try:
@@ -416,6 +449,106 @@ def process_ai_signals():
         logger.error(f"Signal processing error: {e}")
 
 # =============================================================================
+# Sniper Mode
+# =============================================================================
+
+def check_sniper_trigger():
+    """
+    Checks if conditions are met to execute a sniper order.
+    This is a high-speed, reactive trade.
+    """
+    global last_snipe_time
+    
+    if not Path(SNIPER_TARGET_PATH).exists():
+        return
+    
+    # Only attempt to snipe every 5 seconds to avoid spamming
+    if time.time() - last_snipe_time < 5:
+        return
+        
+    try:
+        with open(SNIPER_TARGET_PATH, 'r') as f:
+            sniper_target = json.load(f)
+            
+        if sniper_target.get("status") != "PENDING":
+            return
+            
+        # Check price momentum
+        momentum = calculate_momentum()
+        
+        # Example: Snipe if strong upward momentum and target is a BUY_YES
+        # Or strong downward momentum and target is a SELL_YES
+        
+        trigger_momentum = sniper_target.get("trigger_momentum", SNIPER_TRIGGER_THRESHOLD)
+        
+        if sniper_target["side"] == "BUY_YES" and momentum > trigger_momentum:
+            logger.info(f"🎯 SNIPER TRIGGERED (BUY_YES): Momentum {momentum:.2f} > {trigger_momentum:.2f}")
+            execute_sniper_order(sniper_target)
+            last_snipe_time = time.time()
+            
+        elif sniper_target["side"] == "SELL_YES" and momentum < -trigger_momentum:
+            logger.info(f"🎯 SNIPER TRIGGERED (SELL_YES): Momentum {momentum:.2f} < {-trigger_momentum:.2f}")
+            execute_sniper_order(sniper_target)
+            last_snipe_time = time.time()
+            
+    except Exception as e:
+        logger.error(f"Sniper trigger check error: {e}")
+
+
+def execute_sniper_order(sniper_target: dict):
+    """Executes the sniper order and updates its status."""
+    
+    ticker = sniper_target["ticker"]
+    side = sniper_target["side"]
+    count = sniper_target["size"]
+    price = sniper_target["target_price"] # Use target price as limit
+    
+    kalshi_side = 'yes'
+    action = 'buy'
+    
+    if side == "BUY_YES":
+        kalshi_side = 'yes'
+        action = 'buy'
+    elif side == "SELL_YES":
+        kalshi_side = 'yes'
+        action = 'sell'
+    
+    logger.critical(f"💥 SNIPER EXECUTION: {action.upper()} {count} {ticker} {kalshi_side.upper()} @ {price}")
+    
+    order_data = {
+        "ticker": ticker,
+        "action": action,
+        "type": "limit",
+        "side": kalshi_side,
+        "count": count,
+        "price": int(price * 100),
+        "expiration_ts": None,
+        "client_order_id": sniper_target["id"]
+    }
+    
+    try:
+        res = kalshi_request("POST", "/trade-api/v2/portfolio/orders", order_data)
+        
+        if "order_id" in res:
+            logger.critical(f"SNIPER ORDER PLACED: {res['order_id']}")
+            folio.record_trade(ticker, kalshi_side, price, count, action.upper())
+            sniper_target["status"] = "EXECUTED"
+        else:
+            logger.error(f"SNIPER ORDER FAILED: {res}")
+            sniper_target["status"] = "FAILED"
+            
+    except Exception as e:
+        logger.error(f"Sniper execution error: {e}")
+        sniper_target["status"] = "FAILED"
+        
+    # Update sniper_target.json
+    try:
+        with open(SNIPER_TARGET_PATH, 'w') as f:
+            json.dump(sniper_target, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to update sniper_target.json: {e}")
+
+# =============================================================================
 # Main Trading Loop
 # =============================================================================
 
@@ -430,16 +563,22 @@ def trading_loop():
     """
     global is_trading_halted
     
+    logger.info("Starting main loop...")
     loop_count = 0
+    loop_start = time.time()
     
     while True:
         try:
             loop_start = time.time()
             loop_count += 1
             
-            # 1. Hot-reload strategy every 100 loops (~1 second)
-            if loop_count % 100 == 0:
-                reload_strategy()
+            # 0. Check Sniper Trigger (Fastest Check)
+            if current_strategy.get("mode") == "sniper":
+                check_sniper_trigger()
+            
+            # 1. Check Strategy Updates
+            if loop_count % 500 == 0: # Every ~5 seconds
+             reload_strategy()
             
             # 2. Check for HALT mode
             if current_strategy.get("mode") == "HALT":

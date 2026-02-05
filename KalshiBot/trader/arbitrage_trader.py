@@ -35,11 +35,15 @@ KALSHI_BASE_URL = "https://demo-api.elections.kalshi.com" if KALSHI_USE_DEMO els
 STATE_PATH = Path("/app/config/arbitrage_state.json")
 LOG_PATH = Path("/app/logs/arbitrage.log")
 
-# Trading parameters (Split $50 account: $25 momentum, $25 arbitrage)
-STARTING_BALANCE = 25.00
-MAX_POSITION_SIZE = 5   # contracts per leg (reduced for smaller bankroll)
-MIN_PROFIT_PER_TRADE = 0.03  # $0.03 minimum profit after fees
-SCAN_INTERVAL = 10  # seconds between scans
+# Trading parameters (CONSERVATIVE for $20 remaining capital)
+STARTING_BALANCE = 20.00
+MAX_POSITION_SIZE = 2   # contracts per leg (reduced for smaller bankroll)
+MIN_PROFIT_PER_TRADE = 0.05  # $0.05 minimum profit after fees
+SCAN_INTERVAL = 30  # seconds between scans
+MAX_OPEN_POSITIONS = 2  # Max 2 simultaneous trades
+
+# Paper trading mode
+PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 
 # Fee structure (Kalshi)
 MAKER_FEE = 0.0  # Limit orders = 0% fee
@@ -123,10 +127,33 @@ def kalshi_request(method: str, path: str, data: dict = None) -> dict:
 # Market Data
 # =============================================================================
 
+def is_digital_call(market: dict) -> bool:
+    """
+    Returns True if market is a digital call (not a range market).
+
+    Digital calls: Single strike, binary outcome (BTC > $X)
+    Range markets: floor_strike + cap_strike (BTC $X-Y range)
+    """
+    floor = market.get("floor_strike")
+    cap = market.get("cap_strike")
+
+    # If BOTH floor and cap exist, it's a range market - REJECT
+    if floor is not None and cap is not None:
+        return False
+
+    # If either exists alone, it's still a range variant - REJECT
+    if floor is not None or cap is not None:
+        return False
+
+    # Must have a parsed strike
+    strike = market.get("strike")
+    return strike is not None
+
+
 def fetch_crypto_markets() -> list[dict]:
-    """Fetch crypto prediction markets (BTC/ETH)."""
+    """Fetch crypto prediction markets (BTC only - digital calls)."""
     markets = []
-    series_list = ["KXBTC", "KXBTCD", "INXBTC", "INXD", "KXETH"]
+    series_list = ["KXBTC", "KXBTCD", "INXBTC"]  # BTC only, removed ETH
 
     for series in series_list:
         try:
@@ -134,14 +161,20 @@ def fetch_crypto_markets() -> list[dict]:
             batch = result.get("markets", [])
 
             for m in batch:
-                markets.append({
+                parsed = {
                     "ticker": m.get("ticker"),
                     "title": m.get("title", ""),
                     "subtitle": m.get("subtitle", ""),
                     "close_time": m.get("close_time"),
                     "expiration_time": m.get("expiration_time"),
+                    "floor_strike": m.get("floor_strike"),  # Track this
+                    "cap_strike": m.get("cap_strike"),      # Track this
                     "strike": parse_strike(m),
-                })
+                }
+
+                # ONLY add if it's a digital call (not a range market)
+                if is_digital_call(parsed):
+                    markets.append(parsed)
 
             time.sleep(0.2)  # Rate limit protection
 
@@ -149,7 +182,7 @@ def fetch_crypto_markets() -> list[dict]:
             logger.warning(f"Failed to fetch series {series}: {e}")
             continue
 
-    logger.info(f"Fetched {len(markets)} crypto markets")
+    logger.info(f"Fetched {len(markets)} digital call markets (ranges filtered out)")
     return markets
 
 
@@ -203,6 +236,44 @@ def parse_strike(market: dict) -> Optional[float]:
 # Arbitrage Detection
 # =============================================================================
 
+def find_simple_arbitrage(markets_with_prices: list[dict]) -> list[dict]:
+    """
+    Find markets where YES + NO ≠ $1.00 (simple arbitrage).
+
+    This is the simplest arbitrage - if you can buy both sides for <$1,
+    you're guaranteed to profit when one side pays $1.
+    """
+    opportunities = []
+
+    for m in markets_with_prices:
+        yes_ask = m.get('yes_ask', 0)
+        no_ask = m.get('no_ask', 0)
+
+        if yes_ask == 0 or no_ask == 0:
+            continue
+
+        total_cost = yes_ask + no_ask
+
+        # Conservative threshold: $0.96 (4¢ buffer for fees)
+        if total_cost < 0.96:
+            profit = 1.0 - total_cost
+            fees = TAKER_FEE * max(yes_ask, no_ask)  # Assume taker on one side
+            profit_after_fees = profit - fees
+
+            if profit_after_fees >= MIN_PROFIT_PER_TRADE:
+                opportunities.append({
+                    "type": "SIMPLE_ARB",
+                    "ticker": m['ticker'],
+                    "yes_ask": yes_ask,
+                    "no_ask": no_ask,
+                    "total_cost": total_cost,
+                    "gross_profit": profit,
+                    "net_profit": profit_after_fees,
+                })
+
+    return opportunities
+
+
 def find_strike_arbitrage(markets_with_prices: list[dict]) -> list[dict]:
     """
     Find strike monotonicity violations.
@@ -217,6 +288,10 @@ def find_strike_arbitrage(markets_with_prices: list[dict]) -> list[dict]:
     series_groups = defaultdict(list)
 
     for m in markets_with_prices:
+        # Skip range markets
+        if m.get('floor_strike') is not None and m.get('cap_strike') is not None:
+            continue
+
         if m.get('strike') is None:
             continue
 
@@ -339,8 +414,45 @@ def place_limit_order(ticker: str, side: str, quantity: int, price: float) -> di
         return {}
 
 
+def execute_simple_arbitrage(opp: dict, quantity: int) -> bool:
+    """Execute a simple arbitrage trade (buy both YES and NO)."""
+    if PAPER_TRADING:
+        logger.info(f"[PAPER] SIMPLE ARB: {opp['ticker']} | YES @ ${opp['yes_ask']:.2f} + NO @ ${opp['no_ask']:.2f} | Net: ${opp['net_profit'] * quantity:.2f}")
+        return True
+
+    logger.info(f"⚡ SIMPLE ARB: {opp['ticker']} | Buy YES @ ${opp['yes_ask']:.2f} + NO @ ${opp['no_ask']:.2f} | Profit: ${opp['net_profit']:.2f}")
+
+    # Buy both YES and NO
+    order1 = place_limit_order(
+        ticker=opp['ticker'],
+        side="yes",
+        quantity=quantity,
+        price=opp['yes_ask']
+    )
+
+    if not order1:
+        return False
+
+    order2 = place_limit_order(
+        ticker=opp['ticker'],
+        side="no",
+        quantity=quantity,
+        price=opp['no_ask']
+    )
+
+    if not order2:
+        logger.warning("Second leg failed - HEDGE IMMEDIATELY")
+        return False
+
+    return True
+
+
 def execute_strike_arbitrage(opp: dict, quantity: int) -> bool:
     """Execute a strike arbitrage trade."""
+    if PAPER_TRADING:
+        logger.info(f"[PAPER] STRIKE ARB: Buy {opp['ticker_buy']} @ ${opp['buy_price']:.2f}, Sell {opp['ticker_sell']} @ ${opp['sell_price']:.2f} | Net: ${opp['net_profit'] * quantity:.2f}")
+        return True
+
     logger.info(f"⚡ STRIKE ARB: Buy {opp['ticker_buy']} @ ${opp['buy_price']:.2f}, Sell {opp['ticker_sell']} @ ${opp['sell_price']:.2f} | Profit: ${opp['net_profit']:.2f}")
 
     # Leg 1: Buy low strike (YES)
@@ -370,7 +482,11 @@ def execute_strike_arbitrage(opp: dict, quantity: int) -> bool:
 
 
 def execute_spread_arbitrage(opp: dict, quantity: int) -> bool:
-    """Execute a spread arbitrage trade."""
+    """Execute a spread arbitrage trade (DEPRECATED - use execute_simple_arbitrage)."""
+    if PAPER_TRADING:
+        logger.info(f"[PAPER] SPREAD ARB: {opp['ticker']} | YES @ ${opp['yes_price']:.2f} + NO @ ${opp['no_price']:.2f} | Net: ${opp['net_profit'] * quantity:.2f}")
+        return True
+
     logger.info(f"⚡ SPREAD ARB: {opp['ticker']} | Buy YES @ ${opp['yes_price']:.2f} + NO @ ${opp['no_price']:.2f} | Profit: ${opp['net_profit']:.2f}")
 
     # Buy both YES and NO
@@ -434,14 +550,24 @@ def save_state(state: dict):
 
 def main():
     logger.info("🎰 Arbitrage Trader starting...")
+    logger.info(f"Mode: {'PAPER TRADING' if PAPER_TRADING else 'LIVE TRADING'}")
     logger.info(f"Target: {MIN_PROFIT_PER_TRADE * 100:.0f}¢ minimum profit per trade")
     logger.info(f"Max position: {MAX_POSITION_SIZE} contracts per leg")
+    logger.info(f"Scan interval: {SCAN_INTERVAL}s")
 
     if not KALSHI_API_KEY_ID or not KALSHI_PRIVATE_KEY_PATH:
         sys.exit("ERROR: Kalshi credentials not configured")
 
     state = load_state()
     logger.info(f"Balance: ${state['balance']:.2f} | Daily P&L: ${state['daily_pnl']:+.2f}")
+
+    # Session stats
+    stats = {
+        "scans_completed": 0,
+        "opps_found": 0,
+        "opps_executed": 0,
+        "total_profit": 0.0
+    }
 
     cycle_count = 0
 
@@ -470,6 +596,7 @@ def main():
                 state['last_reset'] = today
                 save_state(state)
 
+            stats["scans_completed"] += 1
             logger.info(f"🔍 Scan #{cycle_count} - Looking for arbitrage...")
 
             # Fetch crypto markets specifically
@@ -480,7 +607,7 @@ def main():
                 time.sleep(SCAN_INTERVAL)
                 continue
 
-            logger.info(f"Fetching orderbooks for {len(crypto_markets)} crypto markets...")
+            logger.info(f"Fetching orderbooks for {len(crypto_markets)} digital call markets...")
 
             # Fetch orderbooks (this is the expensive part)
             markets_with_prices = []
@@ -499,19 +626,21 @@ def main():
 
             logger.info(f"Got pricing for {len(markets_with_prices)} markets")
 
-            # Find arbitrage opportunities
+            # Find arbitrage opportunities (use both strategies)
+            simple_opps = find_simple_arbitrage(markets_with_prices)
             strike_opps = find_strike_arbitrage(markets_with_prices)
             spread_opps = find_spread_arbitrage(markets_with_prices)
 
-            total_opps = len(strike_opps) + len(spread_opps)
+            total_opps = len(simple_opps) + len(strike_opps) + len(spread_opps)
 
             if total_opps == 0:
                 logger.info("✅ No arbitrage found (market is efficient)")
             else:
-                logger.info(f"🎯 Found {total_opps} opportunities ({len(strike_opps)} strike, {len(spread_opps)} spread)")
+                stats["opps_found"] += total_opps
+                logger.info(f"🎯 Found {total_opps} opportunities ({len(simple_opps)} simple, {len(strike_opps)} strike, {len(spread_opps)} spread)")
 
                 # Execute best opportunities
-                all_opps = strike_opps + spread_opps
+                all_opps = simple_opps + strike_opps + spread_opps
                 all_opps.sort(key=lambda x: x['net_profit'], reverse=True)
 
                 for opp in all_opps[:3]:  # Top 3 opportunities
@@ -522,24 +651,33 @@ def main():
                         break
 
                     success = False
-                    if opp['type'] == 'STRIKE_ARB':
+                    if opp['type'] == 'SIMPLE_ARB':
+                        success = execute_simple_arbitrage(opp, quantity)
+                    elif opp['type'] == 'STRIKE_ARB':
                         success = execute_strike_arbitrage(opp, quantity)
                     elif opp['type'] == 'SPREAD_ARB':
                         success = execute_spread_arbitrage(opp, quantity)
 
                     if success:
+                        stats["opps_executed"] += 1
                         # Update state (optimistic - assume profit)
                         estimated_profit = opp['net_profit'] * quantity
                         state['balance'] += estimated_profit
                         state['daily_pnl'] += estimated_profit
                         state['total_arb_profit'] += estimated_profit
                         state['trades_today'] += 1
+                        stats["total_profit"] += estimated_profit
                         save_state(state)
 
-                        logger.info(f"💰 Trade executed | Estimated profit: ${estimated_profit:.2f} | New balance: ${state['balance']:.2f}")
+                        profit_msg = f"[PAPER PROFIT]" if PAPER_TRADING else "Trade executed"
+                        logger.info(f"💰 {profit_msg} | Est profit: ${estimated_profit:.2f} | New balance: ${state['balance']:.2f}")
 
                         # Wait before next trade
                         time.sleep(5)
+
+            # Log session stats
+            if stats["scans_completed"] % 10 == 0:
+                logger.info(f"📊 Session stats: {stats['scans_completed']} scans, {stats['opps_found']} found, {stats['opps_executed']} executed, ${stats['total_profit']:.2f} profit")
 
             # Sleep before next scan
             time.sleep(SCAN_INTERVAL)

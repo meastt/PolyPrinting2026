@@ -39,29 +39,33 @@ class ArbitrageScanner:
         """
         # Group by series (e.g., 'KXBTC-25FEB15')
         series_groups = defaultdict(list)
-        
+
         for m in markets:
+            # Skip range markets (they have both floor_strike and cap_strike)
+            if m.get('floor_strike') is not None and m.get('cap_strike') is not None:
+                continue
+
             # We need to parse series ticker from 'ticker'
             # Format: KXBTC-25FEB15-B55000
             parts = m['ticker'].split('-')
             if len(parts) < 3:
                 continue
-            
+
             # Group ID: KXBTC-25FEB15 (everything except the strike part)
             # Actually, "Strike" series distinct from others?
             # We assume same underlying, same date.
             # Ticker usually: [SYMBOL]-[DATE]-[TYPE][STRIKE]
             # Example: KXBTC-26FEB0417-T87749.99
-            
+
             # Let's group by the first 2 parts: KXBTC-26FEB0417
             group_id = "-".join(parts[:2])
-            
+
             # Parse logic: is it a "Above/Below" or "Range"?
             # Kalshi crypto is typically "Above" (binary).
             # Ticker suffix: B69000 (Above 69000? Or Below? Kalshi 'Strike' usually implies > Strike)
-            # Actually need to verify contract specs. 
+            # Actually need to verify contract specs.
             # Assuming standard "Price > Strike" (Call) logic for this scanner MVP.
-            
+
             # IMPORTANT: We need numerical strike.
             if m.get('strike') is not None:
                 series_groups[group_id].append(m)

@@ -88,7 +88,12 @@ class MarketScanner:
                 
                 for m in batch:
                     markets.append(self._parse_market_response(m))
-                
+
+                # Debug: Log first market to see what data we're getting
+                if page_count == 1 and len(markets) > 0:
+                    sample = markets[0]
+                    logger.info(f"DEBUG Sample market: ticker={sample.get('ticker')}, yes_ask={sample.get('yes_ask')}, yes_bid={sample.get('yes_bid')}")
+
                 if len(markets) > 15000:
                     logger.warning("Global Scan hit safety limit (15000)")
                     break

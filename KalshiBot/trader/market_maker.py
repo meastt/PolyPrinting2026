@@ -301,10 +301,13 @@ def kalshi_request(method: str, path: str, data: dict = None) -> dict:
     """Make authenticated request to Kalshi API."""
     url = f"{KALSHI_BASE_URL}{path}"
     timestamp = int(time.time() * 1000)
-    
+
+    # Strip query params from path for signature (Kalshi requirement)
+    path_for_signature = path.split('?')[0]
+
     headers = {
         "KALSHI-ACCESS-KEY": KALSHI_API_KEY_ID,
-        "KALSHI-ACCESS-SIGNATURE": sign_request(method, path, timestamp),
+        "KALSHI-ACCESS-SIGNATURE": sign_request(method, path_for_signature, timestamp),
         "KALSHI-ACCESS-TIMESTAMP": str(timestamp),
         "Content-Type": "application/json"
     }

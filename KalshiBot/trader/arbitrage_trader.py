@@ -131,8 +131,12 @@ def is_digital_call(market: dict) -> bool:
     """
     Returns True if market is a digital call (not a range market).
 
-    Digital calls: Single strike, binary outcome (BTC > $X)
+    Digital calls: Single strike, binary outcome (BTC > $X or BTC < $X)
+      - Has floor_strike but NO cap_strike (for "greater than")
+      - Has cap_strike but NO floor_strike (for "less than")
+
     Range markets: floor_strike + cap_strike (BTC $X-Y range)
+      - Has BOTH floor_strike AND cap_strike
     """
     floor = market.get("floor_strike")
     cap = market.get("cap_strike")
@@ -141,10 +145,7 @@ def is_digital_call(market: dict) -> bool:
     if floor is not None and cap is not None:
         return False
 
-    # If either exists alone, it's still a range variant - REJECT
-    if floor is not None or cap is not None:
-        return False
-
+    # If either floor OR cap exists (but not both), it's a digital call - ACCEPT
     # Must have a parsed strike
     strike = market.get("strike")
     return strike is not None

@@ -41,7 +41,8 @@ class ArbitrageScanner:
         series_groups = defaultdict(list)
 
         for m in markets:
-            # Skip range markets (they have both floor_strike and cap_strike)
+            # Skip range markets (they have BOTH floor_strike AND cap_strike)
+            # Digital calls have only one: floor (for ">") or cap (for "<")
             if m.get('floor_strike') is not None and m.get('cap_strike') is not None:
                 continue
 

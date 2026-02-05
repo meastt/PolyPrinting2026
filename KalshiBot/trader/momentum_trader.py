@@ -42,11 +42,11 @@ KALSHI_BASE_URL = "https://demo-api.elections.kalshi.com" if KALSHI_USE_DEMO els
 
 STATE_PATH = Path("/app/config/momentum_state.json")
 
-# Bankroll Management
-STARTING_BALANCE = 50.00
+# Bankroll Management (Split $50 account: $25 momentum, $25 arbitrage)
+STARTING_BALANCE = 25.00
 MAX_RISK_PER_TRADE_PCT = 0.10  # 10% max per trade
 DAILY_LOSS_LIMIT_PCT = 0.20    # 20% daily loss = halt
-MAX_POSITION_SIZE = 5          # contracts
+MAX_POSITION_SIZE = 2          # contracts (reduced for smaller bankroll)
 
 # Trading Parameters
 MOMENTUM_THRESHOLD = 7.0       # $/sec BTC velocity (lowered for more trading)

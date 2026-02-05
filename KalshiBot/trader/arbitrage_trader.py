@@ -35,9 +35,9 @@ KALSHI_BASE_URL = "https://demo-api.elections.kalshi.com" if KALSHI_USE_DEMO els
 STATE_PATH = Path("/app/config/arbitrage_state.json")
 LOG_PATH = Path("/app/logs/arbitrage.log")
 
-# Trading parameters
-STARTING_BALANCE = 50.00
-MAX_POSITION_SIZE = 10  # contracts per leg
+# Trading parameters (Split $50 account: $25 momentum, $25 arbitrage)
+STARTING_BALANCE = 25.00
+MAX_POSITION_SIZE = 5   # contracts per leg (reduced for smaller bankroll)
 MIN_PROFIT_PER_TRADE = 0.03  # $0.03 minimum profit after fees
 SCAN_INTERVAL = 10  # seconds between scans
 

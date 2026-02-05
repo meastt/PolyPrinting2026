@@ -123,39 +123,33 @@ def kalshi_request(method: str, path: str, data: dict = None) -> dict:
 # Market Data
 # =============================================================================
 
-def fetch_all_markets() -> list[dict]:
-    """Fetch all active markets (paginated)."""
+def fetch_crypto_markets() -> list[dict]:
+    """Fetch crypto prediction markets (BTC/ETH)."""
     markets = []
-    cursor = None
+    series_list = ["KXBTC", "KXBTCD", "INXBTC", "INXD", "KXETH"]
 
-    while True:
-        path = "/trade-api/v2/markets?status=open&limit=100"
-        if cursor:
-            path += f"&cursor={cursor}"
+    for series in series_list:
+        try:
+            result = kalshi_request("GET", f"/trade-api/v2/markets?series_ticker={series}&status=open")
+            batch = result.get("markets", [])
 
-        result = kalshi_request("GET", path)
-        batch = result.get("markets", [])
+            for m in batch:
+                markets.append({
+                    "ticker": m.get("ticker"),
+                    "title": m.get("title", ""),
+                    "subtitle": m.get("subtitle", ""),
+                    "close_time": m.get("close_time"),
+                    "expiration_time": m.get("expiration_time"),
+                    "strike": parse_strike(m),
+                })
 
-        if not batch:
-            break
+            time.sleep(0.2)  # Rate limit protection
 
-        for m in batch:
-            markets.append({
-                "ticker": m.get("ticker"),
-                "title": m.get("title", ""),
-                "subtitle": m.get("subtitle", ""),
-                "close_time": m.get("close_time"),
-                "expiration_time": m.get("expiration_time"),
-                "strike": parse_strike(m),
-            })
+        except Exception as e:
+            logger.warning(f"Failed to fetch series {series}: {e}")
+            continue
 
-        cursor = result.get("cursor")
-        if not cursor or len(markets) > 5000:  # Safety limit
-            break
-
-        time.sleep(0.3)  # Rate limit protection
-
-    logger.info(f"Fetched {len(markets)} active markets")
+    logger.info(f"Fetched {len(markets)} crypto markets")
     return markets
 
 
@@ -478,11 +472,8 @@ def main():
 
             logger.info(f"🔍 Scan #{cycle_count} - Looking for arbitrage...")
 
-            # Fetch all markets
-            markets = fetch_all_markets()
-
-            # Filter to crypto markets for speed (optional - could scan all)
-            crypto_markets = [m for m in markets if 'BTC' in m['ticker'] or 'ETH' in m['ticker']]
+            # Fetch crypto markets specifically
+            crypto_markets = fetch_crypto_markets()
 
             if not crypto_markets:
                 logger.warning("No crypto markets found")

@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt python-dotenv
+
+# Copy trader code
+COPY momentum_trader.py market_scanner.py probability.py ./
+
+RUN mkdir -p /app/logs /app/keys
+
+CMD ["python", "-u", "momentum_trader.py"]

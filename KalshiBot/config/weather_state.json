@@ -1,0 +1,15 @@
+{
+  "balance": 20.0,
+  "starting_balance": 20.0,
+  "daily_pnl": 0.0,
+  "total_pnl": 0.0,
+  "trades_today": 0,
+  "total_trades": 0,
+  "win_rate": 0.0,
+  "paused": false,
+  "halted": false,
+  "last_scan": 0,
+  "status": "initialized",
+  "updated_at": 0,
+  "_comment": "Weather trading bot state"
+}

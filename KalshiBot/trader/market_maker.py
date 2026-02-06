@@ -43,8 +43,10 @@ KALSHI_BASE_URL = "https://demo-api.elections.kalshi.com" if KALSHI_USE_DEMO els
 
 CONFIG_PATH = "/app/config/strategy.json"
 SIGNALS_PATH = "/app/config/trading_signals.json"
+WEATHER_SIGNALS_PATH = "/app/config/weather_signals.json"
 SNIPER_TARGET_PATH = "/app/config/sniper_target.json"
 STATE_PATH = "/app/config/portfolio_state.json"
+WEATHER_STATE_PATH = "/app/config/weather_state.json"
 LOG_PATH = "/app/logs/trader.log"
 
 # Import Position Manager
@@ -421,35 +423,51 @@ def execute_order(signal: dict) -> bool:
         return False
 
 def process_ai_signals():
-    """Check for new signals from Strategist."""
-    if not Path(SIGNALS_PATH).exists():
-        return
+    """Check for new signals from Strategist (Crypto & Weather)."""
+    # Process crypto signals
+    if Path(SIGNALS_PATH).exists():
+        try:
+            with open(SIGNALS_PATH, 'r') as f:
+                data = json.load(f)
 
-    try:
-        # Read signals
-        # We need a file lock technically, but atomic write/read pattern helps.
-        with open(SIGNALS_PATH, 'r') as f:
-            data = json.load(f)
-            
-        signals = data.get("signals", [])
-        modified = False
-        
-        for signal in signals:
-            if signal.get("status") == "PENDING":
-                # Execute
-                success = execute_order(signal)
-                
-                # Update status
-                signal["status"] = "EXECUTED" if success else "FAILED"
-                modified = True
-        
-        # Write back if changed
-        if modified:
-             with open(SIGNALS_PATH, 'w') as f:
-                json.dump(data, f, indent=2)
-                
-    except Exception as e:
-        logger.error(f"Signal processing error: {e}")
+            signals = data.get("signals", [])
+            modified = False
+
+            for signal in signals:
+                if signal.get("status") == "PENDING":
+                    success = execute_order(signal)
+                    signal["status"] = "EXECUTED" if success else "FAILED"
+                    modified = True
+
+            if modified:
+                 with open(SIGNALS_PATH, 'w') as f:
+                    json.dump(data, f, indent=2)
+
+        except Exception as e:
+            logger.error(f"Crypto signal processing error: {e}")
+
+    # Process weather signals
+    if Path(WEATHER_SIGNALS_PATH).exists():
+        try:
+            with open(WEATHER_SIGNALS_PATH, 'r') as f:
+                data = json.load(f)
+
+            signals = data.get("signals", [])
+            modified = False
+
+            for signal in signals:
+                if signal.get("status") == "PENDING":
+                    logger.info(f"Processing weather signal: {signal.get('ticker')}")
+                    success = execute_order(signal)
+                    signal["status"] = "EXECUTED" if success else "FAILED"
+                    modified = True
+
+            if modified:
+                 with open(WEATHER_SIGNALS_PATH, 'w') as f:
+                    json.dump(data, f, indent=2)
+
+        except Exception as e:
+            logger.error(f"Weather signal processing error: {e}")
 
 # =============================================================================
 # Sniper Mode

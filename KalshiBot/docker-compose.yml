@@ -74,6 +74,46 @@ services:
     networks:
       - kalshi-net
 
+  # =============================================================================
+  # WEATHER STRATEGIST: Weather Prediction AI
+  # Analyzes weather forecasts, generates trade signals
+  # =============================================================================
+  weather-strategist:
+    build:
+      context: ./weather
+      dockerfile: Dockerfile
+    container_name: kalshi-weather-strategist
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./keys:/app/keys:ro
+    depends_on:
+      - trader
+    networks:
+      - kalshi-net
+    command: ["python3", "/app/weather/weather_strategist.py"]
+
+  # =============================================================================
+  # BIAS CALIBRATOR: Daily Forecast Bias Updates
+  # Updates historical bias data and archives forecasts
+  # =============================================================================
+  bias-calibrator:
+    build:
+      context: ./weather
+      dockerfile: Dockerfile.calibrator
+    container_name: kalshi-bias-calibrator
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+    networks:
+      - kalshi-net
+
 networks:
   kalshi-net:
     driver: bridge

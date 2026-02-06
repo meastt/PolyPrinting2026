@@ -1,0 +1,14 @@
+{
+  "records": [],
+  "_comment": "Historical forecast error records",
+  "_record_structure": {
+    "date": "YYYY-MM-DD",
+    "station": "NWS station ID",
+    "source": "Forecast source name",
+    "metric": "high or low",
+    "forecast": "Forecasted temperature",
+    "actual": "Actual observed temperature",
+    "error": "forecast - actual",
+    "timestamp": "ISO timestamp"
+  }
+}

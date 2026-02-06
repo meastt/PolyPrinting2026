@@ -27,7 +27,10 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 MOMENTUM_STATE_PATH = Path("/app/config/momentum_state.json")
 ARBITRAGE_STATE_PATH = Path("/app/config/arbitrage_state.json")
+WEATHER_STATE_PATH = Path("/app/config/weather_state.json")
 TRADING_SIGNALS_PATH = Path("/app/config/trading_signals.json")
+WEATHER_SIGNALS_PATH = Path("/app/config/weather_signals.json")
+BIAS_FILE_PATH = Path("/app/config/forecast_bias.json")
 LOG_PATH = Path("/app/logs/agent.log")
 
 if not TELEGRAM_BOT_TOKEN:
@@ -76,6 +79,9 @@ def cmd_help(message):
 
 *Commands:*
 /status - Balance, Daily P&L, Active Positions
+/weather - Weather predictions & positions
+/bias - Forecast bias statistics
+/markets - Active weather markets
 /pause - Temporarily stop trading
 /resume - Resume trading
 /logs - System status & diagnostics
@@ -84,6 +90,7 @@ def cmd_help(message):
 *Strategies Running:*
 • Momentum Trader (KXBTC 15-min markets)
 • Arbitrage Scanner (Risk-free opportunities)
+• Weather Predictor (Temperature markets)
 """
     bot.reply_to(message, help_text, parse_mode='Markdown')
 
@@ -260,6 +267,123 @@ def cmd_logs(message):
     bot.reply_to(message, "\n".join(lines), parse_mode='Markdown')
 
 
+@bot.message_handler(commands=['weather'])
+def cmd_weather(message):
+    if not is_authorized(message):
+        return
+
+    try:
+        # Load weather state
+        weather = {}
+        if WEATHER_STATE_PATH.exists():
+            with open(WEATHER_STATE_PATH, 'r') as f:
+                weather = json.load(f)
+
+        # Load recent signals
+        signals = []
+        if WEATHER_SIGNALS_PATH.exists():
+            with open(WEATHER_SIGNALS_PATH, 'r') as f:
+                data = json.load(f)
+                signals = data.get("signals", [])[-5:]  # Last 5 signals
+
+        balance = weather.get('balance', 20.0)
+        pnl = weather.get('daily_pnl', 0.0)
+        trades = weather.get('trades_today', 0)
+
+        status_text = f"""🌤️ *Weather Trading Status*
+
+*Balance:* ${balance:.2f}
+*Daily P&L:* ${pnl:+.2f}
+*Trades Today:* {trades}
+*Win Rate:* {weather.get('win_rate', 0):.0%}
+
+*Recent Signals:*
+"""
+        if signals:
+            for sig in signals:
+                status = sig.get('status', 'UNKNOWN')
+                emoji = "✅" if status == "EXECUTED" else "❌" if status == "FAILED" else "⏳"
+                ticker = sig.get('ticker', 'Unknown')
+                confidence = sig.get('confidence', 0)
+                status_text += f"{emoji} {ticker} ({confidence:.0%})\n"
+        else:
+            status_text += "_No recent signals_\n"
+
+        bot.reply_to(message, status_text, parse_mode='Markdown')
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error loading weather data: {e}")
+
+
+@bot.message_handler(commands=['bias'])
+def cmd_bias(message):
+    if not is_authorized(message):
+        return
+
+    try:
+        if not BIAS_FILE_PATH.exists():
+            bot.reply_to(message, "📊 No bias data available yet.\n\nBias data is collected over 180 days.")
+            return
+
+        with open(BIAS_FILE_PATH, 'r') as f:
+            bias_data = json.load(f)
+
+        if not bias_data or bias_data.get("_comment"):
+            bot.reply_to(message, "📊 No bias data collected yet.\n\nData will appear after first calibration.")
+            return
+
+        status_text = "📊 *Forecast Bias Statistics*\n\n"
+
+        for station, sources in list(bias_data.items())[:3]:  # Show first 3 stations
+            status_text += f"*{station}:*\n"
+            for source, metrics in sources.items():
+                high_bias = metrics.get('high_bias', 0)
+                low_bias = metrics.get('low_bias', 0)
+                samples = metrics.get('high_samples', 0)
+                status_text += f"  • {source}: {high_bias:+.1f}°F high, {low_bias:+.1f}°F low ({samples} samples)\n"
+            status_text += "\n"
+
+        bot.reply_to(message, status_text, parse_mode='Markdown')
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error loading bias data: {e}")
+
+
+@bot.message_handler(commands=['markets'])
+def cmd_markets(message):
+    if not is_authorized(message):
+        return
+
+    try:
+        if not WEATHER_SIGNALS_PATH.exists():
+            bot.reply_to(message, "No weather signals file found.")
+            return
+
+        with open(WEATHER_SIGNALS_PATH, 'r') as f:
+            data = json.load(f)
+            signals = data.get("signals", [])
+
+        # Get active signals (pending)
+        active = [s for s in signals if s.get('status') == 'PENDING']
+
+        status_text = f"🎯 *Active Weather Markets*\n\n"
+
+        if active:
+            for sig in active[:10]:  # Show up to 10
+                ticker = sig.get('ticker', 'Unknown')
+                temp = sig.get('predicted_temp', 0)
+                conf = sig.get('confidence', 0)
+                price = sig.get('market_price', 0)
+                status_text += f"• {ticker}\n  Pred: {temp:.1f}°F ({conf:.0%}) @ ${price:.2f}\n\n"
+        else:
+            status_text += "_No active signals_\n"
+
+        bot.reply_to(message, status_text, parse_mode='Markdown')
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {e}")
+
+
 @bot.message_handler(commands=['kill'])
 def cmd_kill(message):
     if not is_authorized(message):
@@ -286,6 +410,16 @@ def cmd_kill(message):
             state['paused'] = True
             state['updated_at'] = int(time.time())
             with open(ARBITRAGE_STATE_PATH, 'w') as f:
+                json.dump(state, f, indent=2)
+
+        # Halt weather trader
+        if WEATHER_STATE_PATH.exists():
+            with open(WEATHER_STATE_PATH, 'r') as f:
+                state = json.load(f)
+            state['halted'] = True
+            state['paused'] = True
+            state['updated_at'] = int(time.time())
+            with open(WEATHER_STATE_PATH, 'w') as f:
                 json.dump(state, f, indent=2)
 
         logger.critical("KILL COMMAND RECEIVED - All trading halted")

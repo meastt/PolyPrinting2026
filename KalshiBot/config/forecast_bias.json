@@ -1,0 +1,14 @@
+{
+  "_comment": "Historical forecast biases by station and source",
+  "_structure": {
+    "STATION_ID": {
+      "SOURCE_NAME": {
+        "high_bias": "Average error for high temps (°F)",
+        "low_bias": "Average error for low temps (°F)",
+        "high_samples": "Number of high temp samples",
+        "low_samples": "Number of low temp samples",
+        "last_updated": "ISO timestamp"
+      }
+    }
+  }
+}
